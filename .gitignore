@@ -1,2 +1,7 @@
 .DS_Store
 **/.DS_Store
+tmp_docx_extract/
+reconstruction/
+reconstruction/*.mp4
+reconstruction/*.mov
+reconstruction/*.avi
