@@ -1,0 +1,37 @@
+\section{绪论}
+
+\subsection{研究背景}
+
+从二维图像恢复三维结构并进一步编辑，是计算机视觉与计算机图形学长期交叉的核心问题。其应用覆盖虚拟现实、增强现实、数字孪生、游戏资产制作、机器人感知和室内空间设计。传统方法通常先利用局部特征建立图像对应关系，通过 Structure-from-Motion（SfM）估计稀疏点云和相机位姿，再通过 Multi-View Stereo（MVS）恢复稠密几何，最后借助 NeRF 或 3D Gaussian Splatting（3DGS）完成新视角合成。该流程具有清晰的几何解释，但多个阶段会累积误差，并且往往需要逐场景优化。
+
+近年来，大规模视觉 Transformer 和三维数据训练推动了前馈三维重建。DUSt3R 将两视图重建改写为 canonical pointmap 回归\cite{dust3r}；VGGT 进一步在一个多视图 Transformer 中联合预测相机、深度、pointmap 和跟踪特征\cite{vggt}，使一张至数百张图像的关键几何属性可以在数秒内获得。与传统管线相比，VGGT 不仅缩短了推理链路，还提供统一世界坐标、跨视图对应关系和像素级置信度，为三维编辑提供了更直接的几何接口。
+
+在三维生成方面，TRELLIS 提出 Structured LATent（SLAT），在稀疏三维网格的 active voxels 上存储局部潜变量，并使用两阶段 rectified flow 分别生成稀疏结构和局部细节\cite{trellis}. 同一潜表示可以解码为 mesh、Radiance Field 或 3D Gaussians，并支持局部区域重采样。由此，VGGT 与 TRELLIS 形成明显互补：前者回答“真实场景在哪里、相机如何观察”，后者回答“需要添加或替换的三维内容如何生成”。
+
+\subsection{问题定义}
+
+本文关注如下任务：给定同一真实场景的多视图图像集合
+\begin{equation}
+  \mathcal{I}=\{I_i\}_{i=1}^{N},
+\end{equation}
+以及文本或图像形式的编辑条件 $c$，首先恢复场景几何表示 $\mathcal{G}$，再生成目标三维资产 $\mathcal{A}$，最终通过空间变换 $T=(s,\mathbf{R},\mathbf{t})$ 获得编辑后场景
+\begin{equation}
+  \mathcal{G}_{\mathrm{edit}}
+  =\mathcal{G}\cup T(\mathcal{A}),\qquad
+  T(\mathbf{x})=s\mathbf{R}\mathbf{x}+\mathbf{t}.
+\end{equation}
+这里，$s$、$\mathbf{R}$ 和 $\mathbf{t}$ 分别控制资产尺度、朝向和位置。系统应满足三个要求：生成内容符合语义条件；资产与原场景几何关系合理；编辑结果在多个视角下保持一致。
+
+\subsection{研究内容与主要工作}
+
+本文完成的复现与提出的方法可归纳为三项主要工作：
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{统一高斯表示与图文双驱。}完成 VGGT 在真实多视图上的几何输出与可视化验证，并核对 TRELLIS 1 的图像/文本条件、两阶段采样与多格式解码接口。在此基础上，设计以 3DGS 为内部工作表示的统一编辑链路。
+  \item \textbf{真实场景融合与语言精确编辑。}设计将 VGGT 的相机位姿、pointmap 与置信度用于场景初始化、空间定位和编辑后验证；结合 REALM 式全局到局部定位、SAM2 二维掩码与多视图三维回投，将语言指令映射为高斯实例选区，并为添加、移动、删除、替换和材质编辑定义可执行算子。
+  \item \textbf{高保真多格式交付。}代码审计确认 TRELLIS 1 同一 SLat 可解码为 3DGS、Radiance Field 与 Mesh，VGGT 可导出点云 GLB 与 COLMAP 数据；在此基础上，以 TRELLIS 2 的 O-Voxel 作为后续保留复杂几何和 PBR 材质的扩展方向。
+\end{enumerate}
+
+\subsection{报告结构}
+
+第 2 节梳理前馈三维重建、三维生成与编辑相关工作；第 3 节介绍 VGGT、TRELLIS 和 3DGS 等理论基础；第 4 节给出融合系统的方法设计；第 5 节以源码为依据说明两个工程的实际接口、导出格式与实现边界；第 6 节展示已验证结果并给出融合实验的实现状态和评价设计；第 7 节总结工作并讨论后续方向。

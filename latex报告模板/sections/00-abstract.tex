@@ -1,0 +1,12 @@
+\section*{摘要}
+\addcontentsline{toc}{section}{摘要}
+
+面向增强现实、数字孪生和三维内容创作的真实场景编辑，既要求从有限图像中恢复可靠的空间结构，又要求生成内容具有完整几何、合理外观和跨视角一致性。传统三维重建流程通常依赖特征匹配、Structure-from-Motion、Bundle Adjustment 和 Multi-View Stereo 等多阶段优化，流程复杂且难以满足交互速度；二维扩散模型虽然具备强大的语义生成能力，但逐视图编辑容易产生几何冲突。针对上述问题，本文研究 Visual Geometry Grounded Transformer（VGGT）与 TRELLIS 的互补能力，对本地两个官方代码库的推理与导出接口进行核验，并提出一种面向真实场景的重建、生成与编辑框架。
+
+该框架首先使用 VGGT 对教室多视图图像进行前馈推理，联合获得相机参数、深度、pointmap、跨视图对应特征和置信度，并据此形成统一坐标系中的场景表示；随后使用 TRELLIS 的 Structured LATent（SLAT）和两阶段 rectified flow，根据文本或参考图像生成可独立操作的三维资产；最后通过尺度、旋转和平移变换将生成资产对齐到重建场景，并设计基于地面几何、背景保持和多视图重投影的约束。为形成质量闭环，本文进一步讨论以 VGGT 置信度、相对位姿漂移和深度/pointmap cycle consistency 评价编辑候选的可行性。
+
+现阶段已获得多视图深度与场景可视化，验证了 VGGT 的相机和稠密几何接口。代码审计进一步确认：VGGT 演示程序可导出点云 GLB 与 COLMAP 数据；TRELLIS 代码可从图像或文本条件解码 mesh、3D Gaussian 和 Radiance Field。但当前仓库仍缺少从两者输出到场景注册、局部融合和几何闭环的统一执行脚本。本文因而将已验证代码能力与待实现系统设计明确分层，为后续可复现的多视图一致三维编辑提供代码级依据。
+
+\noindent\textbf{关键词：}VGGT；TRELLIS；三维重建；三维生成；场景编辑；多视图一致性
+
+\newpage

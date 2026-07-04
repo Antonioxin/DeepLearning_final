@@ -1,0 +1,89 @@
+\section{模型原理与技术基础}
+
+\subsection{VGGT 的多视图统一几何预测}
+
+设输入为 $N$ 张观察同一场景的 RGB 图像，VGGT 学习映射
+\begin{equation}
+  f\left(\{I_i\}_{i=1}^{N}\right)
+  =\{g_i,D_i,P_i,F_i,\Sigma_i\}_{i=1}^{N},
+\end{equation}
+其中 $g_i$ 表示相机内外参，$D_i$ 表示深度，$P_i$ 表示在第一相机坐标系下的 viewpoint-invariant pointmap，$F_i$ 表示跟踪特征，$\Sigma_i$ 表示预测不确定性。给定像素齐次坐标 $\tilde{\mathbf{u}}=[u,v,1]^\top$，深度与相机可以反投影为
+\begin{equation}
+  \mathbf{x}_{i}^{(c)}=D_i(u,v)\mathbf{K}_i^{-1}\tilde{\mathbf{u}},
+  \qquad
+  \mathbf{x}_{i}^{(w)}=\mathbf{R}_i^\top
+  \left(\mathbf{x}_{i}^{(c)}-\mathbf{t}_i\right).
+\end{equation}
+
+VGGT 使用 DINO 将图像分块为视觉 token，并追加 camera token 与 register token。其主干不是持续执行昂贵的全局注意力，而是交替采用两种注意力：frame-wise self-attention 在每幅图内部更新局部结构，global self-attention 在所有视图间建立对应和全局几何。第一帧使用特殊 token 以确定参考坐标，除第一帧外的图像顺序保持排列等变。
+
+图 \ref{fig:vggt-paper-pipeline} 展示了 VGGT 的完整前馈路径。不同颜色表示来自不同输入图像的 token；全局注意力负责跨视图交换信息，帧内注意力则在各自图像内部更新局部表征。经过多层交替注意力后，camera token 进入 Camera Head，图像 token 进入 DPT dense prediction head，分别产生相机、深度、pointmap 和跟踪结果。这种共享主干、多任务分头预测的结构，使相机估计与稠密几何能够相互提供约束。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.98\linewidth]{paper_vggt_pipeline.png}
+  \caption{VGGT 整体架构，包括 DINO 图像编码、交替注意力及多任务预测头（引自文献 \cite{vggt} 的 Fig. 2）}
+  \label{fig:vggt-paper-pipeline}
+\end{figure}
+
+VGGT 同时监督相机、深度、pointmap 与 tracking。尽管这些量存在解析关系，过完备的多任务监督能促使主干学习更可靠的三维表示。推理时可根据具体任务选择直接 pointmap，或由相机与深度重新反投影。对于编辑系统，后者便于控制尺度、过滤低置信区域并建立统一三维坐标。
+
+\subsection{TRELLIS 的 Structured LATent}
+
+对于三维资产 $O$，TRELLIS 将其表示为
+\begin{equation}
+  z=\{(\mathbf{z}_i,\mathbf{p}_i)\}_{i=1}^{L},
+  \qquad
+  \mathbf{p}_i\in\{0,1,\ldots,N-1\}^3,
+\end{equation}
+其中 $\mathbf{p}_i$ 是与物体表面相交的 active voxel 位置，$\mathbf{z}_i$ 是对应局部潜变量。由于 $L\ll N^3$，模型可以在高空间分辨率下避免处理大量空体素。active voxel 描述粗结构，局部 latent 记录精细形状和外观。
+
+SLAT 的学习分为编码和解码。首先从多个视角渲染资产，用 DINOv2 抽取二维特征，并将其投影聚合到 active voxels；随后 sparse VAE 把体素特征编码到结构化潜空间。不同 decoder 可以将同一潜变量解码成 mesh、Radiance Field 或 3D Gaussian。生成时，第一阶段 flow model 预测 sparse structure，第二阶段只在 active cells 上预测 local latents。
+
+如图 \ref{fig:trellis-paper-pipeline} 所示，TRELLIS 同时包含“资产编码与解码”和“条件生成”两条路径。上半部分把多视图 DINOv2 特征与稀疏结构融合，经 Sparse VAE 得到 SLAT，并通过不同 decoder 输出 3DGS、Radiance Field 或 mesh；下半部分先生成 sparse structure，再在非空位置生成 structured latents，最后解码为目标三维格式。两阶段生成将全局拓扑与局部细节分开建模，是 TRELLIS 能够进行区域级重采样和局部编辑的基础。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.98\linewidth]{paper_trellis_pipeline.png}
+  \caption{TRELLIS 的 SLAT 编码、两阶段生成与多格式解码流程（引自文献 \cite{trellis} 的 Fig. 2）}
+  \label{fig:trellis-paper-pipeline}
+\end{figure}
+
+Rectified flow 使用数据样本 $\mathbf{x}_0$ 与噪声 $\boldsymbol{\epsilon}$ 的线性路径
+\begin{equation}
+  \mathbf{x}(t)=(1-t)\mathbf{x}_0+t\boldsymbol{\epsilon},
+\end{equation}
+并学习速度场 $v_\theta(\mathbf{x},t)$：
+\begin{equation}
+  \mathcal{L}_{\mathrm{CFM}}
+  =\mathbb{E}_{t,\mathbf{x}_0,\boldsymbol{\epsilon}}
+  \left\|v_\theta(\mathbf{x},t)-(\boldsymbol{\epsilon}-\mathbf{x}_0)\right\|_2^2.
+\end{equation}
+两阶段解耦使 TRELLIS 能固定结构只改变细节，或给定三维 bounding box 对局部结构和潜变量进行 RePaint 式重采样。
+
+\subsection{3D Gaussian Splatting}
+
+一个三维 Gaussian 可记为
+\begin{equation}
+  G_k=(\boldsymbol{\mu}_k,\mathbf{R}_k,\mathbf{s}_k,
+  \alpha_k,\mathbf{c}_k),
+\end{equation}
+其中 $\boldsymbol{\mu}_k$ 为中心，$\mathbf{R}_k$ 与 $\mathbf{s}_k$ 决定协方差
+\begin{equation}
+  \boldsymbol{\Sigma}_k
+  =\mathbf{R}_k\operatorname{diag}(\mathbf{s}_k^2)\mathbf{R}_k^\top.
+\end{equation}
+Gaussian 投影到图像平面后按深度排序并进行 alpha compositing。3DGS 同时具有显式空间位置、实时渲染和可微优化能力，因此适合承担本文的场景编辑表示：对象移动可直接修改 $\boldsymbol{\mu}$，缩放和旋转可修改 $\mathbf{s}$ 与 $\mathbf{R}$，外观编辑可限制在 mask 内更新 opacity 与球谐颜色系数。
+
+从前馈几何到可渲染 Gaussian 的连接可以参考 FLARE。图 \ref{fig:flare-paper-pipeline} 中，网络先从无标定稀疏视图估计粗位姿，在相机坐标系中预测局部几何，再利用细化位姿和 Global Geometry Projector 得到统一点图，最后回归 Gaussian 参数。该流程说明 pointmap 只确定 Gaussian 中心的几何基础；若要得到高质量可渲染场景，还需要从图像特征预测尺度、旋转、不透明度和外观参数。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.98\linewidth]{paper_flare_pipeline.png}
+  \caption{FLARE 从稀疏无标定视图到全局点图与 3D Gaussians 的前馈管线（引自文献 \cite{flare} 的 Fig. 2）}
+  \label{fig:flare-paper-pipeline}
+\end{figure}
+
+\subsection{重建与生成的互补关系}
+
+VGGT 输出的是以输入观测为依据的场景几何，优势是相机和多视图对应可靠，但无法凭空生成完整新资产；TRELLIS 学习三维资产分布，可以补充不可见面并生成新对象，但其局部坐标、尺度和朝向不属于真实场景。本文使用显式空间对齐连接二者：VGGT 决定“放在哪里”，TRELLIS 决定“生成什么”，3DGS 或 mesh 决定“如何表示和渲染”。

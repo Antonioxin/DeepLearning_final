@@ -1,0 +1,193 @@
+\section{代码结构与复现流程}
+\begingroup
+\setlength{\emergencystretch}{3em}
+
+\subsection{代码范围与实现边界}
+
+本地 \texttt{code/} 目录包含两个彼此独立的上游工程：
+\texttt{code/vggt/} 对应 Facebook Research 的 VGGT 实现，本地修订为
+\texttt{a288dd0}；\texttt{code/TRELLIS/} 对应 Microsoft TRELLIS 实现，
+本地修订为 \texttt{442aa1e}。两个子工程均保留了官方推理、可视化与训练代码。
+
+需要强调的是，当前代码中没有直接同时导入 \texttt{vggt} 与
+\texttt{trellis} 的融合入口，也没有支撑面估计、资产相似变换、SAM2/MLLM
+定位、局部可微融合或 VGGT 闭环评分的可执行实现。因此，第 4 章给出的是基于
+现有模型接口可以实现的系统方法，而本章只把已在源码中出现的功能记为“已实现”。
+
+\begin{table}[H]
+  \centering
+  \caption{本地代码中已实现模块及其输出}
+  \label{tab:code-scope}
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{4.2cm} X}
+    \toprule
+    \textbf{模块} & \textbf{主要入口} & \textbf{代码可验证功能} \\
+    \midrule
+    VGGT 前馈 & \path{demo_gradio.py}\\\path{demo_viser.py} &
+    输出相机编码、深度/置信度、世界 pointmap/置信度；可选跟踪头输出 track、visibility 和 confidence。\\
+    VGGT 导出 & \path{visual_util.py}\\\path{demo_colmap.py} &
+    将 pointmap 或“深度+相机”反投影为彩色点云，进行置信度百分位过滤，导出 GLB；另可导出 COLMAP 相机、图像和点云文件。\\
+    TRELLIS 生成 & \path{example.py}\\\path{example_text.py} &
+    从单图或文本条件先采样 sparse structure，再采样 SLat，同一 SLat 可解码为 mesh、3D Gaussian 和 Radiance Field。\\
+    TRELLIS 扩展 & \path{example_multi_image.py}\\\path{example_variant.py} &
+    支持训练自由的多图条件和基于已有 mesh 体素结构的文本变体生成。\\
+    融合编辑 & 尚无统一入口 &
+    第 4 章的注册、局部融合、语言定位与几何闭环尚需实现，不应与两个官方演示程序混为一谈。\\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{代码声明的运行依赖}
+
+仓库没有保存本次实际运行时的 GPU 型号、驱动、CUDA 环境快照和逐阶段耗时，
+故本文不对这些字段作猜测。表 \ref{tab:environment} 严格列出源码或项目配置能够确认的依赖，
+它表示“代码要求”而非“本次运行机器实测配置”。
+
+\begin{table}[H]
+  \centering
+  \caption{代码可核对的运行环境与依赖}
+  \label{tab:environment}
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.1cm} X}
+    \toprule
+    \textbf{项目} & \textbf{源码中的配置} \\
+    \midrule
+    报告构建 & macOS，XeLaTeX + ctex（仅用于报告编译）\\
+    VGGT Python & \texttt{pyproject.toml} 要求 Python $\geq 3.10$\\
+    VGGT PyTorch & \path{requirements.txt} 固定 \path{torch==2.3.1}、\path{torchvision==0.18.1}、\path{numpy==1.26.1}\\
+    VGGT 权重 & \path{facebook/VGGT-1B} 的 \path{model.pt}\\
+    VGGT 可视化 & Gradio 5.17.1、viser 0.2.23、Trimesh；COLMAP 导出另需 pycolmap、pyceres 和 LightGlue\\
+    TRELLIS 系统 & README 声明仅测试 Linux，需 NVIDIA GPU 且至少 16 GB 显存，Python $\geq 3.8$\\
+    TRELLIS CUDA & 官方测试 CUDA 11.8/12.2；\texttt{setup.sh} 默认环境使用 PyTorch 2.4.0 + CUDA 11.8\\
+    TRELLIS 权重 & 图像通道使用 \path{microsoft/TRELLIS-image-large}；文本示例使用 \path{microsoft/TRELLIS-text-xlarge}\\
+    实际运行记录 & GPU、CUDA/cuDNN、逐阶段耗时与峰值显存未随仓库归档\\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{VGGT 代码级复现流程}
+
+\subsubsection{输入与预处理}
+
+Gradio 入口接收多张图像或一段视频。视频路径使用 OpenCV 读取 FPS，并按
+\texttt{int(fps * 1)} 的帧间隔抽取，即默认约每秒 1 帧。图像经
+\path{load_and_preprocess_images} 转为 RGB 和 $[0,1]$ 张量。默认
+\texttt{crop} 模式将宽度调整为 518 像素，按比例调整高度并使尺寸可被 14 整除；
+\texttt{pad} 模式则保留全部画面，以白色补成 $518\times 518$。这些数值与
+VGGT 中 $14\times14$ 的 DINOv2 patch embedding 直接对应。
+
+\subsubsection{前馈输出与混合精度}
+
+\texttt{VGGT} 类默认使用 518 像素输入、14 像素 patch、1024 维 token、24 层
+frame/global 交替注意力以及 16 个注意力头。每帧前追加 1 个 camera token 和 4 个
+register token。模型入口张量为 $[B,S,3,H,W]$，其推理字典包含：
+\begin{itemize}[itemsep=0.1em, topsep=0.3em]
+  \item \texttt{pose\_enc}: $[B,S,9]$，经 \texttt{pose\_encoding\_to\_extri\_intri} 转为内外参；
+  \item \texttt{depth}/\texttt{depth\_conf}: $[B,S,H,W,1]$ 与 $[B,S,H,W]$；
+  \item \texttt{world\_points}/\texttt{world\_points\_conf}: $[B,S,H,W,3]$ 与 $[B,S,H,W]$；
+  \item 当提供 query points 时，还输出 \texttt{track}、\texttt{vis} 与 \texttt{conf}。
+\end{itemize}
+
+演示程序使用 \texttt{torch.no\_grad()} 和 CUDA autocast；当 GPU compute capability
+主版本不小于 8 时使用 bfloat16，否则使用 float16。相机、深度和 pointmap 稠密头
+内部显式关闭 autocast 并以 float32 计算，以减少几何量的数值误差。
+
+\subsubsection{点云、GLB 与 COLMAP 导出}
+
+VGGT 的演示输出不是带协方差、opacity 与球谐系数的 3DGS 文件。
+\path{visual_util.py} 在以下两条路径中二选一：直接使用
+\texttt{world\_points}，或用内外参将 \texttt{depth} 反投影为世界点。点云按置信度百分位
+过滤，Gradio 入口的默认值为 3.0，viser 命令行的默认值为 25.0；还可过滤纯黑/纯白
+背景、天空以及指定帧。结果先保存为 \texttt{predictions.npz}，再用 Trimesh 将彩色点云与可选相机
+视锥导出为 GLB。
+
+\texttt{demo\_colmap.py} 则将图像先填充至 $1024\times1024$，再在 $518\times518$
+分辨率执行 VGGT。无 BA 路径使用 PINHOLE 相机并最多随机保留 100,000 个高置信度点；
+可选 BA 路径使用 VGGSfM tracker 建立轨迹，再调用 pycolmap bundle adjustment。最终输出
+COLMAP \texttt{cameras}、\texttt{images}、\texttt{points3D} 文件和快速可视化用
+\texttt{points.ply}，可作为后续 gsplat 等 3DGS 训练器的初始化输入。
+
+\subsection{TRELLIS 代码级复现流程}
+
+\subsubsection{条件预处理}
+
+图像通道使用图像条件 Pipeline 加载 \texttt{TRELLIS-image-large}。对无 alpha 通道的图像，代码先用
+\texttt{rembg} 的 U2Net 去背景；再根据 alpha $>0.8\times255$ 的前景区域求包围盒，将正方形边长
+扩大到目标最大尺寸的 1.2 倍，裁剪后缩放到 $518\times518$。文本通道通过
+文本条件 Pipeline 加载 \texttt{TRELLIS-text-xlarge}，
+使用 CLIP tokenizer 将提示截断或补齐至 77 tokens。
+
+\subsubsection{两阶段采样与多格式解码}
+
+两条管线共用相同的主干逻辑。第一阶段在 $16^3$ 结构潜空间从高斯噪声采样 sparse
+structure，并经 decoder 判断非空坐标；第二阶段只在 active coordinates 上创建稀疏噪声特征，
+采样 $64^3$ SLat 并执行反归一化。默认返回的格式列表为
+\texttt{[mesh, gaussian, radiance\_field]}，分别调用三个 SLat decoder。
+
+官方单图和文本示例使用随机种子 1，注释中提供了 12 步采样的可选配置。图像条件
+示例对 sparse structure 使用 CFG 7.5，对 SLat 使用 CFG 3；文本条件示例的两阶段均给出
+CFG 7.5。多图条件实现不训练新模型，而是在每一采样步轮换条件图，或对多图预测求平均。
+
+\subsubsection{资产渲染与导出}
+
+示例分别渲染 Gaussian 颜色、Radiance Field 颜色和 mesh 法向视频，均以 30 FPS 保存。
+Gaussian 表示可直接通过 \texttt{save\_ply} 写出。GLB 路径同时接收外观表示与 mesh，
+执行 mesh 简化、孔洞填充、UV 参数化与多视图纹理烘焙。官方示例设置
+\texttt{simplify=0.95} 和 \texttt{texture\_size=1024}，并将 z-up 顶点旋转到 glTF 常用的 y-up
+坐标系。
+
+\subsection{现有产物的格式核验}
+
+除源码外，仓库还归档了 \texttt{room.ply} 和 \texttt{classroom.glb}。通过解析文件头与
+glTF JSON chunk，可得到表 \ref{tab:artifact-audit} 所示的可验证信息。
+
+\begin{table}[H]
+  \centering
+  \caption{归档三维产物的结构核验}
+  \label{tab:artifact-audit}
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.8cm} p{3.0cm} X}
+    \toprule
+    \textbf{文件} & \textbf{规模} & \textbf{结构解读} \\
+    \midrule
+    \texttt{room.ply} & 3,551,987 个顶点，约 840 MB &
+    binary little-endian PLY，每个顶点含 62 个属性：位置、法向、48 个球谐颜色系数、opacity、3 个 scale 和 4 个 rotation，确属 3DGS 参数文件。\\
+    \texttt{classroom.glb} & 1 个 scene、445 个 node、444 个 mesh，约 16 MB &
+    其中 1 个 primitive 使用 glTF mode 0（POINTS）并含 1,000,000 个彩色点；443 个 primitive 使用 mode 1（LINES），且无纹理图像。这与 VGGT Gradio 导出的“点云+相机线框”结构一致，不是 TRELLIS 纹理 mesh 的证据。\\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\texttt{room.ply} 的属性可证明其是可渲染高斯场景，但当前 \texttt{code/vggt/} 只直接导出
+点云 GLB、COLMAP 文件与 \texttt{points.ply}；仓库中缺少“VGGT/COLMAP 初始化
+$\rightarrow$ 3DGS 优化 $\rightarrow$ \texttt{room.ply}”的训练命令、配置与日志。因此本文将该文件记为
+“已归档的 Gaussian 产物”，而不宣称当前两个子仓库可以端到端重现它。
+
+\subsection{待实现的统一融合接口}
+
+两个工程已经提供了可以对接的数据契约，但还需新建独立的融合模块。代码级的最小对接面可写为：
+
+\begin{lstlisting}[language=Python, caption={基于现有 API 的最小对接面（尚需实现融合部分）}]
+# VGGT: cameras and observed scene geometry
+pred = vggt(images)
+extrinsic, intrinsic = pose_encoding_to_extri_intri(
+    pred["pose_enc"], images.shape[-2:]
+)
+scene_points = pred["world_points"]
+scene_conf = pred["world_points_conf"]
+
+# TRELLIS: independently generated local asset
+asset = trellis_pipeline.run(
+    condition, seed=seed,
+    formats=["mesh", "gaussian", "radiance_field"]
+)
+
+# Missing in the current repository:
+# target grounding -> support-plane fitting -> Sim(3) registration
+# -> local fusion -> multi-view rerendering -> VGGT verification
+\end{lstlisting}
+
+为保证下一阶段可复现，融合模块应至少保存：VGGT 预测的原始 \texttt{npz}，
+TRELLIS 条件、模型名、随机种子和采样参数，资产与场景的坐标系约定，
+$s,\mathbf R,\mathbf t$ 变换，支撑面和三维掩码，以及每个候选的几何、语义与背景保持分数。
+\endgroup

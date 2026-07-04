@@ -1,0 +1,520 @@
+\section{融合 VGGT 与 TRELLIS 的三维场景编辑方法}
+
+\subsection{问题定义}
+
+给定同一真实场景的 $N$ 张无标定 RGB 图像
+$\mathcal{I}=\{I_i\}_{i=1}^{N}$，以及描述待生成对象的文本或参考图像条件 $c$，
+本文目标是在不重新训练 VGGT 与 TRELLIS 的前提下，生成编辑后的三维场景
+$\mathcal{S}'$。编辑指令可进一步表示为
+$q=(o,r,a)$，其中 $o$ 表示操作类型，$r$ 表示目标空间区域，$a$ 表示对象类别、
+尺度或朝向等属性。本文重点研究对象添加，并将刚体变换、对象替换与局部补全作为
+同一框架下的扩展操作。
+
+该问题的关键并非分别获得一个重建结果和一个生成结果，而是建立二者之间的空间与
+评价接口。VGGT 从观测图像恢复场景几何
+\begin{equation}
+  \mathcal{G}
+  =f_{\mathrm{VGGT}}(\mathcal{I})
+  =\{\mathbf{K}_i,\mathbf{T}_i,D_i,P_i,C_i\}_{i=1}^{N},
+\end{equation}
+其中 $\mathbf{K}_i$、$\mathbf{T}_i$、$D_i$、$P_i$ 和 $C_i$ 分别为相机内参、
+外参、深度、pointmap 与几何置信度。TRELLIS 根据条件 $c$ 生成局部坐标系中的
+三维资产
+\begin{equation}
+  \mathcal{A}=f_{\mathrm{TRELLIS}}(c),
+  \qquad \mathcal{A}\in\{\text{mesh},\text{3DGS},\text{radiance field}\}.
+\end{equation}
+系统需要求解从资产坐标系到 VGGT 世界坐标系的相似变换
+\begin{equation}
+  \mathcal{T}_{a\rightarrow w}(\mathbf{x})
+  =s\mathbf{R}\mathbf{x}+\mathbf{t},
+  \qquad s>0,\quad \mathbf{R}\in \mathrm{SO}(3),
+\end{equation}
+并使融合结果同时满足语义正确、空间接触合理、多视图几何一致和未编辑区域稳定四类
+要求。由此，本文将三维编辑写为候选变换搜索问题：
+\begin{equation}
+  \mathcal{T}^{*}
+  =\arg\max_{\mathcal{T}\in\Omega(r)}
+  S\!\left(\operatorname{Fuse}
+  (\mathcal{S},\mathcal{T}(\mathcal{A})),q\right),
+\end{equation}
+其中 $\Omega(r)$ 是由目标区域与支撑平面约束得到的可行变换集合，$S$ 是包含
+VGGT 几何反馈的联合评分函数。
+
+\subsection{方法总览}
+
+整体框架如图 \ref{fig:pipeline} 所示，由统一场景重建、语言定位、条件生成、空间注册、
+局部融合和闭环验证六个阶段组成。首先，VGGT 将多视图图像映射到统一参考坐标系，
+联合估计相机位姿、深度、pointmap 与几何置信度，并为 3DGS 优化提供相机和高斯中心
+初值。对于“删除讲台旁的椅子”或“把桌上的台灯换成绿色植物”等指令，多模态大模型
+先在全局视图中解析目标、空间关系、操作类型与保护区域，再在代表视图中输出目标框；SAM2
+生成像素级掩码，经多视图可见性和实例特征聚合后得到三维高斯掩码。若指令需要新内容，
+TRELLIS 以文本或参考图像为条件生成 mesh 或 3DGS 资产。系统再利用场景支撑面、目标包围盒
+和几何置信度初始化相似变换，对插入资产及其边界邻域执行局部可微优化。最后，每个编辑候选
+沿原相机位姿重新渲染，由 VGGT 置信度、相对位姿、深度循环误差与背景保持项共同排序。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.98\linewidth}{!}{%
+  \begin{tikzpicture}[
+    node distance=1.05cm and 0.68cm,
+    box/.style={draw, rounded corners, align=center, minimum height=1.05cm, minimum width=2.45cm, fill=blue!6},
+    op/.style={draw, rounded corners, align=center, minimum height=1.05cm, minimum width=2.55cm, fill=orange!10},
+    resultbox/.style={draw, rounded corners, align=center, minimum height=1.05cm, minimum width=2.45cm, fill=green!10},
+    arr/.style={-{Latex[length=2.3mm]}, thick}
+  ]
+    \node[box] (images) {真实场景\\多视图图像};
+    \node[box, right=of images] (vggt) {VGGT\\统一几何推理};
+    \node[resultbox, right=of vggt] (geometry) {相机、深度\\点图、置信度};
+
+    \node[box, below=of images] (condition) {自然语言指令\\文本或参考图像};
+    \node[box, right=of condition] (grounding) {MLLM + SAM2\\全局到局部定位};
+    \node[resultbox, right=of grounding] (mask) {多视图二维掩码\\三维高斯掩码};
+
+    \node[box, below=of condition] (trellis) {TRELLIS\\条件三维生成};
+    \node[resultbox, right=of trellis] (asset) {Mesh / 3DGS\\局部坐标资产};
+
+    \node[op, right=1.0cm of geometry] (register) {支撑面估计与注册\\$s,\mathbf{R},\mathbf{t}$};
+    \node[op, below=of register] (candidate) {候选融合与渲染\\$\{\mathcal{S}'_k\}_{k=1}^{K}$};
+    \node[op, right=of candidate] (verify) {VGGT 几何闭环\\物理与语义评分};
+    \node[resultbox, above=of verify] (output) {最优编辑场景\\$\mathcal{S}'$};
+
+    \draw[arr] (images)--(vggt);
+    \draw[arr] (vggt)--(geometry);
+    \draw[arr] (condition)--(grounding);
+    \draw[arr] (grounding)--(mask);
+    \draw[arr] (condition)--(trellis);
+    \draw[arr] (trellis)--(asset);
+    \draw[arr] (geometry)--(register);
+    \draw[arr] (mask)--(register);
+    \draw[arr] (asset)--(register);
+    \draw[arr] (register)--(candidate);
+    \draw[arr] (candidate)--(verify);
+    \draw[arr] (verify)--(output);
+    \draw[arr, dashed] (verify) to[bend left=20] (register);
+  \end{tikzpicture}}
+  \caption{融合 VGGT 与 TRELLIS 的训练自由三维场景编辑框架}
+  \label{fig:pipeline}
+\end{figure}
+
+该设计借鉴了四类参考工作，但对其功能进行了适合课程实验规模的重新组合。VGGT
+提供统一相机与稠密几何接口\cite{vggt}；TRELLIS
+提供原生三维生成潜空间\cite{trellis}；Vinedresser3D 将复杂编辑分解为条件生成、
+区域定位和局部三维生成\cite{vinedresser}；REALM 提供从语言推理到三维高斯实例的
+全局到局部定位思路\cite{realm}；RL3DEdit 则证明 VGGT 的几何输出可作为
+多视图一致性验证信号\cite{rl3dedit}。与需要大规模成对编辑数据或强化学习训练的方案
+不同，本文设计为冻结两个基础模型，仅在推理阶段搜索和筛选空间变换，因此模块边界清楚，
+也便于分别分析重建误差、生成误差与注册误差。
+
+\subsection{统一 3DGS 工作表示与 VGGT 场景初始化}
+
+为使真实重建结果、生成资产和语言编辑共用同一渲染器与操作算子，本文将系统内部
+工作格式统一为 3D Gaussian Splatting。一个场景表示为
+\begin{equation}
+  \mathcal{G}=\{G_j\}_{j=1}^{J},\qquad
+  G_j=(\boldsymbol{\mu}_j,\boldsymbol{\Sigma}_j,
+  \mathbf{c}_j,\alpha_j,\mathbf{f}_j),
+\end{equation}
+其中 $\boldsymbol{\mu}_j$ 与 $\boldsymbol{\Sigma}_j$ 描述位置、尺度和朝向，$\mathbf{c}_j$ 为颜色或球谐系数，
+$\alpha_j$ 为不透明度，$\mathbf{f}_j$ 是用于语义定位的可选实例特征。对像素 $\mathbf{u}$，按深度
+排序后的可微 $\alpha$ 混合为
+\begin{equation}
+  \hat I(\mathbf{u})=\sum_{j\in\mathcal{N}(\mathbf{u})}
+  \mathbf{c}_j\,a_j(\mathbf{u})
+  \prod_{l<j}\bigl(1-a_l(\mathbf{u})\bigr).
+\end{equation}
+因此，选中、移动、删除、复制、替换和局部外观调整都可被归结为对一组高斯参数的显式操作。
+
+LiSee 原方案使用 SfM 相机位姿和稀疏点云初始化真实场景。本文将这一环节替换为 VGGT：
+相机头提供 $\{\mathbf K_i,\mathbf T_i\}$，dense heads 提供深度、pointmap 和置信度；通过置信筛选的
+pointmap 或深度反投影点初始化高斯中心，颜色由对应像素赋值，尺度由局部点间距估计。随后以
+VGGT 位姿渲染输入视图，优化高斯的位置、协方差、颜色与不透明度：
+\begin{equation}
+  \Theta_{\mathrm{real}}^{*}=\arg\min_{\Theta}
+  \sum_{i=1}^{N}\omega_i\left[
+  \lambda_1\|R_{\Theta}(\mathbf K_i,\mathbf T_i)-I_i\|_1
+  +\lambda_s\bigl(1-\operatorname{SSIM}(R_{\Theta},I_i)\bigr)
+  \right],
+\end{equation}
+其中 $\omega_i$ 由该视图的平均几何置信度给定。这里 VGGT 不被误写为直接产生完整 3DGS 外观
+参数的模型；它的关键作用是联合估计相机与稠密几何，减少传统“特征匹配--SfM--三角化”链路的
+累积误差，再为可渲染高斯场景提供高质量几何初值。
+
+\subsection{基于 VGGT 的场景几何代理}
+
+\subsubsection{置信度感知的多视图融合}
+
+VGGT 的 pointmap 已处于第一相机定义的共同坐标系中，因此无需像逐图像对方法一样
+额外执行全局点云配准。对第 $i$ 个视图中的像素 $\mathbf{u}=(u,v)$，本文定义有效性
+掩码
+\begin{equation}
+  M_i(\mathbf{u})=
+  \mathbb{I}\!\left[C_i(\mathbf{u})>\tau_c\right]
+  \mathbb{I}\!\left[D_{\min}<D_i(\mathbf{u})<D_{\max}\right],
+\end{equation}
+并构造带颜色与置信权重的场景点集
+\begin{equation}
+  \mathcal{P}
+  =\bigcup_{i=1}^{N}
+  \left\{
+  \big(P_i(\mathbf{u}),I_i(\mathbf{u}),C_i(\mathbf{u})\big)
+  \;\middle|\;M_i(\mathbf{u})=1
+  \right\}.
+\end{equation}
+对于落入同一体素的重复观测，位置与颜色使用置信度加权平均，体素权重则累加不同
+视图的可见次数。该步骤同时降低点数和随机 floaters 对平面估计的影响。若使用由
+深度反投影得到的点图，则根据 $\mathbf{K}_i$ 和 $\mathbf{T}_i$ 将其变换到相同坐标系，
+再执行同样的融合操作。
+
+\subsubsection{目标位置与支撑平面估计}
+
+用户可直接在三维视图指定目标点，也可在某一输入视图中点击像素 $\mathbf{u}_r$。
+后者通过 pointmap 得到初始三维位置
+\begin{equation}
+  \mathbf{p}_0=P_r(\mathbf{u}_r).
+\end{equation}
+若该点在其他视图中具有有效跟踪对应 $\mathbf{u}_{i}$，则使用置信度加权的几何中值
+减弱单视图深度误差：
+\begin{equation}
+  \mathbf{p}
+  =\arg\min_{\mathbf{x}}
+  \sum_{i\in\mathcal{V}(r)}
+  C_i(\mathbf{u}_i)\left\|\mathbf{x}-P_i(\mathbf{u}_i)\right\|_2.
+\end{equation}
+
+对于需要放置在地面或桌面的对象，在 $\mathbf{p}$ 邻域内以 RANSAC 拟合候选平面
+\begin{equation}
+  \pi:\;\mathbf{n}^{\top}\mathbf{x}+d=0,
+  \qquad \|\mathbf{n}\|_2=1.
+\end{equation}
+平面选择不仅依据内点数，还同时考虑置信度、空间覆盖以及法向稳定性：
+\begin{equation}
+  Q(\pi)=
+  \frac{1}{|\mathcal{N}_{\pi}|}
+  \sum_{j\in\mathcal{N}_{\pi}}C_j
+  +\lambda_{a}\frac{A(\mathcal{N}_{\pi})}{A_{\mathrm{roi}}}
+  -\lambda_{n}\big(1-|\mathbf{n}^{\top}\mathbf{g}|\big),
+\end{equation}
+其中 $\mathcal{N}_{\pi}$ 为平面内点集合，$A(\cdot)$ 表示其投影覆盖面积，
+$\mathbf{g}$ 为估计重力方向。对墙面安装类对象可相应放宽最后一项，并将目标法向改为
+局部墙面法向。
+
+\subsection{语言驱动的全局到局部三维定位}
+
+\subsubsection{指令解析与代表视图选择}
+
+参考 REALM 的 Global-to-Local Spatial Grounding 思路\cite{realm}，系统不直接要求用户在三维界面
+精确框选。给定指令 $q$ 和由场景渲染的多视图 $\{I_i^R\}$，MLLM 首先输出结构化编辑计划
+\begin{equation}
+  \Pi_q=(o,\,d_{\mathrm{src}},\,d_{\mathrm{tgt}},\,r,\,h,\,\mathcal{V}_q),
+\end{equation}
+其中 $o$ 为添加、移动、删除、复制、替换、材质或结构编辑，$d_{\mathrm{src}}$ 与
+$d_{\mathrm{tgt}}$ 分别描述编辑前后的对象，$r$ 是空间关系，$h$ 是需要保护的部件或区域，
+$\mathcal{V}_q$ 是能清晰观察目标的代表视图集。对每个 $i\in\mathcal{V}_q$，模型返回
+\begin{equation}
+  (B_i,C_i,E_i)=\operatorname{MLLM}(I_i^R,q),
+\end{equation}
+即目标框、类别与定位解释。先做场景级推理，再进入局部像素分割，可区分“窗边的椅子”与
+“门边的椅子”等同类实例，也为后续的保护区域约束提供语义边界。
+
+\subsubsection{SAM2 掩码的多视图三维回投}
+
+SAM2 以 $B_i$ 为提示生成二维掩码 $M_i^{2D}$。仅用单视图掩码反投影会把遮挡后方或几何噪声
+选入目标，因此本文在多视图中聚合每个高斯对掩码像素的渲染贡献。记
+\begin{equation}
+  w_{ij}(\mathbf{u})=a_{ij}(\mathbf{u})
+  \prod_{l<j}\bigl(1-a_{il}(\mathbf{u})\bigr)
+\end{equation}
+为第 $j$ 个高斯在视图 $i$ 的像素 $\mathbf{u}$ 上经可见性处理后的混合权重，则其三维目标分数为
+\begin{equation}
+  s_j(q)=
+  \frac{\sum_{i\in\mathcal{V}_q}\sum_{\mathbf{u}}
+  C_i(\mathbf{u})M_i^{2D}(\mathbf{u})w_{ij}(\mathbf{u})}
+  {\sum_{i\in\mathcal{V}_q}\sum_{\mathbf{u}}
+  C_i(\mathbf{u})w_{ij}(\mathbf{u})+\varepsilon}.
+\end{equation}
+其中 $C_i(\mathbf{u})$ 复用 VGGT 几何置信度，使弱纹理、反射或边界区域的错误回投寱减。同时将每个高斯
+的实例特征 $\mathbf f_j$ 按同样的 $\alpha$ 混合方式渲染为二维特征图，并与 MLLM 类别描述计算语义
+相似度，用于排除遮挡但投影重叠的其他实例。最终三维选区为
+\begin{equation}
+  \mathcal{M}_q^{3D}=\{G_j\in\mathcal{G}_{\mathrm{real}}
+  \mid s_j(q)>\tau_s,\ n_j^{\mathrm{vis}}\geq m\}.
+\end{equation}
+对非高斯场景表示，也可先用 VGGT pointmap 将 $M_i^{2D}$ 中的像素回投为三维点，再与 mesh face 或
+高斯中心做近邻关联。这使 VGGT 同时参与场景生成、相机位姿估计和二维结果的三维落点。
+
+\subsection{TRELLIS 资产生成与规范化}
+
+TRELLIS 的两阶段生成过程可写为
+\begin{equation}
+  \mathcal{O}\sim G_S(c),\qquad
+  \mathbf{z}\sim G_L(\mathcal{O},c),\qquad
+  \mathcal{A}=D_{\rho}(\mathcal{O},\mathbf{z}),
+\end{equation}
+其中 $G_S$ 预测 active voxels 构成的稀疏结构，$G_L$ 在非空体素上生成局部
+latent，$D_{\rho}$ 是 mesh 或 3DGS 解码器。结构与细节分离使生成对象具备完整不可见
+表面，但其坐标原点、单位尺度和正方向均不保证与真实场景一致。因此，在融合前需要
+建立规范资产坐标系。
+
+设生成 mesh 的顶点集合为 $\mathcal{V}=\{\mathbf{v}_j\}_{j=1}^{J}$，轴对齐包围盒
+两端为 $\mathbf{v}_{\min}$ 与 $\mathbf{v}_{\max}$。首先将资产底面中心移到原点：
+\begin{equation}
+  \mathbf{c}_{b}
+  =\left[
+  \frac{v_{\min}^{x}+v_{\max}^{x}}{2},
+  \frac{v_{\min}^{y}+v_{\max}^{y}}{2},
+  v_{\min}^{z}
+  \right]^{\top},
+  \qquad
+  \bar{\mathbf{v}}_j=\mathbf{v}_j-\mathbf{c}_{b}.
+\end{equation}
+随后根据目标类别的期望尺寸 $h_{\mathrm{target}}$ 或用户指定尺寸计算初始尺度
+\begin{equation}
+  s_0=\frac{h_{\mathrm{target}}}
+  {v_{\max}^{z}-v_{\min}^{z}}.
+\end{equation}
+当缺少真实尺度时，可用场景中的门、桌面高度或相邻对象包围盒作为尺度锚点，而不把
+VGGT 的相对尺度误写为绝对米制尺度。
+
+资产朝向由支撑面法向和水平主方向共同确定。首先求取 $\mathbf{R}_{n}$，使资产上方向
+与 $\mathbf{n}$ 对齐；再对顶点在支撑平面上的投影执行 PCA，或由用户给出期望朝向
+$\theta$，得到绕法向旋转 $\mathbf{R}_{\theta}$。初始旋转为
+\begin{equation}
+  \mathbf{R}_0=\mathbf{R}_{\theta}\mathbf{R}_{n}.
+\end{equation}
+初始平移使资产底面中心落在目标点 $\mathbf{p}$。因此
+\begin{equation}
+  \mathbf{t}_0=\mathbf{p},\qquad
+  \mathcal{T}_0=(s_0,\mathbf{R}_0,\mathbf{t}_0).
+\end{equation}
+
+\subsection{约束驱动的候选注册与场景融合}
+
+单次手工对齐容易受点云噪声和未知尺度影响。本文在初始注册附近分别扰动尺度、绕法向
+角度和水平位移，构造 $K$ 个候选
+\begin{equation}
+  \Omega(r)=
+  \left\{
+  \mathcal{T}_k=(s_k,\mathbf{R}_k,\mathbf{t}_k)
+  \right\}_{k=1}^{K}.
+\end{equation}
+每个候选首先通过快速物理代价筛选：
+\begin{equation}
+  E_{\mathrm{phy}}(\mathcal{T}_k)
+  =\lambda_s E_{\mathrm{sup}}
+  +\lambda_p E_{\mathrm{pen}}
+  +\lambda_o E_{\mathrm{out}}.
+\end{equation}
+其中，支撑误差 $E_{\mathrm{sup}}$ 为资产底部采样点到平面 $\pi$ 的平均绝对距离；
+穿透误差 $E_{\mathrm{pen}}$ 统计变换后资产与场景占据体素发生冲突的比例；越界误差
+$E_{\mathrm{out}}$ 衡量资产包围盒落在可重建区域之外的比例。只有物理代价低于阈值的
+候选才进入多视图渲染与 VGGT 验证，从而避免对明显悬浮或穿模的结果执行高成本评分。
+
+对 mesh 资产，变换直接作用于顶点和法向：
+\begin{equation}
+  \mathbf{v}'_j=s\mathbf{R}\bar{\mathbf{v}}_j+\mathbf{t},
+  \qquad
+  \mathbf{n}'_j=\mathbf{R}\mathbf{n}_j.
+\end{equation}
+对 3D Gaussian 资产，均值与协方差变换为
+\begin{equation}
+  \boldsymbol{\mu}'_j=s\mathbf{R}\boldsymbol{\mu}_j+\mathbf{t},
+  \qquad
+  \boldsymbol{\Sigma}'_j
+  =s^2\mathbf{R}\boldsymbol{\Sigma}_j\mathbf{R}^{\top},
+\end{equation}
+融合前先对生成资产执行局部外观校正。对球谐颜色的 DC 分量使用
+\begin{equation}
+  \mathbf c'_{j,0}=\mathbf a\odot\mathbf c_{j,0}+\mathbf b,
+\end{equation}
+其中 $\mathbf a$ 和 $\mathbf b$ 由插入区域周围的真实场景颜色统计初始化，高阶视角相关系数保持不变。
+初始融合为两组高斯的并集
+\begin{equation}
+  \mathcal G_{\mathrm{fuse}}=
+  \mathcal G_{\mathrm{real}}\cup\mathcal T_k(\mathcal G_{\mathrm{gen}}),
+\end{equation}
+遮挡关系由三维深度和 Gaussian alpha compositing 决定，而不是在二维图像上直接粘贴。
+
+简单并集仍可能在接触边界产生割裂、悬浮或明暗突变。因此仅解冻插入资产和其边界邻域
+$\mathcal N_{\mathrm{local}}$，在原相机视图上执行局部联合优化：
+\begin{equation}
+  \Theta_{\mathrm{local}}^{*}=\arg\min_{\Theta_{\mathrm{local}}}
+  \left(L_{\mathrm{render}}+\lambda_bL_{\mathrm{boundary}}
+  +\lambda_lL_{\mathrm{light}}+\lambda_gL_{\mathrm{geom}}
+  +\lambda_rL_{\mathrm{reg}}\right).
+\end{equation}
+$L_{\mathrm{render}}$ 使局部重渲染与周围视觉上下文连续，$L_{\mathrm{boundary}}$ 约束掩码边界颜色和深度
+梯度，$L_{\mathrm{light}}$ 校正亮度与色调，$L_{\mathrm{geom}}$ 保持支撑与非穿透关系，$L_{\mathrm{reg}}$ 限制高斯
+位置、协方差和不透明度偏离初值。编辑区之外的高斯全部冻结，避免为了消除接缝而破坏原场景。
+
+\subsection{统一三维空间中的编辑操作}
+
+在完成资产注册后，本文将不同编辑统一为对显式三维表示和局部区域的操作：
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{对象添加。}MLLM 从“在桌上放一盆绿色植物”中拆解对象描述与
+  支撑关系，TRELLIS 生成新资产，再经 $\mathcal{T}^{*}$ 注册和局部融合后加入原场景。
+  该操作不要求恢复被遮挡背景，是本文实验的主要编辑任务。
+
+  \item \textbf{移动、复制与刚体编辑。}先通过 $\mathcal M_q^{3D}$ 取得目标高斯，再对其均值与
+  协方差施加同一相似变换；复制操作则先克隆目标高斯再变换。所有视角共享同一组几何参数，
+  因而不会出现逐视图移动导致的位置漂移。
+
+  \item \textbf{对象删除与替换。}删除直接移除 $\mathcal M_q^{3D}$ 中的高斯；替换则保留原对象的
+  三维包围盒、支撑面和朝向作为注册条件，删除原实例后调用 TRELLIS 生成目标类别。例如“把桌上的
+  台灯换成一盆绿色植物”依次执行台灯定位、三维删除、植物生成、原位注册和局部融合。
+
+  \item \textbf{材质、外观与局部结构编辑。}纯颜色或材质指令仅更新选中高斯的颜色、球谐或
+  不透明度参数，并用保护掩码固定其他部件。需改变几何结构时，参考 Vinedresser3D，由 MLLM 生成
+  结构/外观分拆提示，将二维编辑先验、三维部件掩码和保护区域共同反演到 SLat 局部潜变量，只重采样
+  目标区域\cite{vinedresser}。
+
+  \item \textbf{删除后的背景补全。}对象删除会暴露原本不可见的表面，单纯删除高斯无法恢复该区域。
+  系统优先利用其他视图已观测到的背景高斯回填；仍有空洞时，再使用 TRELLIS 局部重采样或多视图纹理补全。
+  该分支属于方法设计，不计入本文已完成的添加对象复现结果。
+\end{enumerate}
+
+上述编辑可统一表示为
+\begin{equation}
+  \mathcal G'=\mathcal E_o
+  (\mathcal G_{\mathrm{fuse}},\mathcal M_q^{3D},\eta,h),
+\end{equation}
+其中 $\eta$ 是位姿、尺度、目标描述或材质参数，$h$ 是保护区域。该划分与 VGGT-Edit 的残差思想一致：
+编辑应尽量局限在目标区域，未编辑区域保持
+原几何不变\cite{vggtedit}。区别在于本文不训练稠密残差预测头，而是对显式资产和
+选区执行确定性变换，并把生成模型用于新增内容。这一选择牺牲了自由形变能力，但降低了
+训练数据和算力需求，也使每一步变换均可解释和复现。
+
+图 \ref{fig:mllm-language-edit} 展示了这一语言驱动编辑路径的典型交互过程。用户首先要求删除机甲手臂，系统通过 MLLM 解析指令并定位局部部件；随后连续提出“装上武器双肩”和“换上坦克履带底座”，每轮只更新当前目标区域，其余结构作为保护区域继承。该图用于说明“指令解析--局部定位--编辑算子--状态继承”的方法设计，不作为本文教室场景实验的定量结果。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\linewidth]{MLLM辅助的自然语言编辑效果图.png}
+  \caption{MLLM 辅助的多轮自然语言局部编辑示意}
+  \label{fig:mllm-language-edit}
+\end{figure}
+
+\subsection{VGGT 几何闭环验证}
+
+\subsubsection{候选的多视图重渲染}
+
+对通过物理筛选的候选场景 $\mathcal{S}'_k$，系统沿原始相机
+$\{\mathbf{K}_i,\mathbf{T}_i\}_{i=1}^{M}$ 渲染得到
+$\hat{\mathcal{I}}_k=\{\hat I_{k,i}\}_{i=1}^{M}$。使用原相机而非任意新视角有两个
+作用：一是可以直接比较编辑前后相对位姿和背景；二是新增对象在各视图中的投影、尺度和
+遮挡均由同一三维场景产生。随后将 $\hat{\mathcal{I}}_k$ 再次输入冻结的 VGGT，得到
+编辑后置信度、相机和深度。
+
+\subsubsection{几何与保持性评分}
+
+参考 RL3DEdit 将 VGGT 用作多视图一致性验证器的思路\cite{rl3dedit}，本文定义深度与
+pointmap 置信度分数
+\begin{equation}
+  S_{\mathrm{conf}}^{(k)}
+  =\frac{1}{2M}\sum_{i=1}^{M}
+  \left[
+  \operatorname{mean}(C^{D}_{k,i})+
+  \operatorname{mean}(C^{P}_{k,i})
+  \right].
+\end{equation}
+由于绝对相机坐标可能存在规范自由度，位姿保持采用相邻视图的相对变换。记
+$\mathbf{T}^{\mathrm{rel}}_i=\mathbf{T}_{i+1}\mathbf{T}_i^{-1}$，编辑后预测为
+$\hat{\mathbf{T}}^{\mathrm{rel}}_{k,i}$，则
+\begin{equation}
+  E_{\mathrm{pose}}^{(k)}
+  =\frac{1}{M-1}\sum_{i=1}^{M-1}
+  \left(
+  \left\|\hat{\mathbf{R}}^{\mathrm{rel}}_{k,i}
+  -\mathbf{R}^{\mathrm{rel}}_i\right\|_F^2
+  +\left\|\hat{\mathbf{t}}^{\mathrm{rel}}_{k,i}
+  -\mathbf{t}^{\mathrm{rel}}_i\right\|_2^2
+  \right),
+\end{equation}
+其中平移向量在计算前归一化，以消除未知全局尺度。
+
+渲染器输出的深度记为 $D^{R}_{k,i}$，VGGT 对重渲染图像预测的深度记为
+$D^{V}_{k,i}$。在有效像素集合 $\mathcal{U}_{k,i}$ 上先求解尺度与偏移
+$(\alpha_i,\beta_i)$，再计算深度循环误差
+\begin{equation}
+  E_{\mathrm{cycle}}^{(k)}
+  =\frac{1}{M}\sum_{i=1}^{M}
+  \frac{1}{|\mathcal{U}_{k,i}|}
+  \sum_{\mathbf{u}\in\mathcal{U}_{k,i}}
+  \left|
+  \alpha_i D^{V}_{k,i}(\mathbf{u})+\beta_i
+  -D^{R}_{k,i}(\mathbf{u})
+  \right|.
+\end{equation}
+该项用于检测新增对象在部分视角中出现的尺度冲突、重复表面或错误遮挡。
+
+为防止评分只关注几何而忽略原场景保持，使用重渲染编辑 mask
+$\hat M_{k,i}$ 限定背景区域，并定义
+\begin{equation}
+  E_{\mathrm{bg}}^{(k)}
+  =\frac{1}{M}\sum_{i=1}^{M}
+  \operatorname{LPIPS}
+  \left((1-\hat M_{k,i})\odot \hat I_{k,i},
+  (1-\hat M_{k,i})\odot I_i\right).
+\end{equation}
+若实验环境未配置 LPIPS，可使用 mask 外 SSIM 或颜色均方误差替代。文本或参考图像与
+新增对象裁剪区域之间的 CLIP 相似度记为 $S_{\mathrm{sem}}^{(k)}$，用于防止几何合理但
+生成类别错误的候选获得高分。
+
+最终候选分数为
+\begin{equation}
+  S^{(k)}=
+  \lambda_c S_{\mathrm{conf}}^{(k)}
+  +\lambda_m S_{\mathrm{sem}}^{(k)}
+  -\lambda_p E_{\mathrm{pose}}^{(k)}
+  -\lambda_d E_{\mathrm{cycle}}^{(k)}
+  -\lambda_b E_{\mathrm{bg}}^{(k)}
+  -\lambda_f E_{\mathrm{phy}}^{(k)}.
+\end{equation}
+各项在候选集合内执行 min--max 归一化后再加权。与 RL3DEdit 使用该类信号训练
+二维编辑器不同，本文仅将其用于推理阶段候选排序，因此不需要 GRPO、LoRA 或成对的
+多视图编辑训练集。
+
+\subsection{完整推理流程}
+
+综合上述模块，本文方法的推理过程如下：
+
+\begin{enumerate}[label=\textbf{步骤 \arabic*:}, leftmargin=3.2em]
+  \item 输入真实场景多视图 $\mathcal{I}$，运行 VGGT 得到相机、深度、pointmap 和
+  confidence；执行置信过滤与体素融合，初始化并优化统一高斯场景
+  $\mathcal G_{\mathrm{real}}$。
+  \item MLLM 将指令 $q$ 解析为编辑类型、原/目标描述、空间关系和保护区域，
+  并选择代表视图。
+  \item 对需要操作的既有对象，用 MLLM 目标框提示 SAM2 生成多视图二维掩码，
+  结合高斯渲染贡献、实例特征和 VGGT 置信度聚合为 $\mathcal M_q^{3D}$。
+  \item 当操作为添加、替换或结构编辑时，输入文本或参考图像条件 $c$，运行 TRELLIS
+  生成结构化 latent，并解码为三维资产 $\mathcal A$。
+  \item 根据语言空间关系、三维选区包围盒或用户点击确定目标位置，在邻域点云中拟合支撑平面；对资产执行
+  底面中心化、尺度估计和主方向对齐，得到初始注册 $\mathcal{T}_0$。
+  \item 在 $\mathcal{T}_0$ 附近采样 $K$ 个尺度、角度与位移候选，依据支撑距离、穿透率和越界率预筛；
+  对插入资产及其边界邻域执行颜色校正和局部可微融合，冻结掩码外背景。
+  \item 沿原始相机位姿执行多视图重渲染；重新输入 VGGT，
+  计算置信度、相对位姿和深度循环误差，并结合背景保持与语义分数排序。
+  \item 选择 $k^{*}=\arg\max_k S^{(k)}$，输出最优编辑场景、变换参数
+  $(s^{*},\mathbf{R}^{*},\mathbf{t}^{*})$ 以及各评分项，保证结果可以复现和追踪。
+\end{enumerate}
+
+该方法的核心是把 VGGT 从一次性的重建前端扩展为贯穿编辑前后的几何接口：编辑前，
+它建立统一坐标与目标位置；编辑后，它判断多视图结果是否仍符合真实三维数据先验。
+TRELLIS 则专注于补充真实观测中不存在的新内容。二者与 MLLM/SAM2 定位、显式相似变换、
+局部可微渲染和闭环评分共同形成“重建--定位--生成--融合--编辑--验证”链路，而不是两项独立模型的简单串联。
+
+\subsection{方法创新点归纳}
+
+结合上述设计，本文的方法创新可归纳为以下三点：
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{统一高斯表示与图文双驱。}将真实场景重建、文本/图像条件生成、语言编辑和实时渲染接入
+  同一 3DGS 工作空间。VGGT 在入口端联合提供相机、稠密几何和置信度，使真实图像和文本生成内容可以
+  进入同一套对齐、编辑和导出流程。
+  \item \textbf{真实场景融合与语言精确编辑。}将 REALM 式全局到局部语义定位、SAM2 二维掩码、VGGT
+  pointmap/置信度与三维高斯实例关联结合，将自然语言指令稳定映射到三维选区；再以支撑、尺度、位姿、外观
+  和背景保持约束完成删除、替换、移动和材质编辑。
+  \item \textbf{高保真多格式交付。}系统内部以 3DGS 保持实时编辑与渲染；在交付端可借鉴 TRELLIS 2
+  的 O-Voxel/SLat 原生三维表示保留复杂几何和 PBR 材质，并解码为 3DGS、Radiance Field 或 Mesh，
+  便于导入 Blender、Unity 等工具继续使用\cite{trellis,trellis2}。当前代码已提供 TRELLIS 1 的多格式 decoder 与 GLB/PLY 导出函数，但本地尚缺带条件和随机种子记录的 TRELLIS 生成产物；
+  O-Voxel/PBR 为扩展性方法设计，不作为已完成实验结果。
+\end{enumerate}

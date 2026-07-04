@@ -1,0 +1,27 @@
+\section{相关工作}
+
+\subsection{从 DUSt3R 到 VGGT 的前馈三维重建}
+
+DUSt3R 不再把相机标定视为稠密重建的前置条件，而是从一对图像直接回归表达在第一相机坐标系中的两个 pointmap\cite{dust3r}。该表示同时保存像素到三维点的映射和两视图间的几何关系，并可进一步恢复焦距、相对位姿和像素匹配。对于多视图输入，DUSt3R 仍需把多组 pairwise pointmap 通过全局优化对齐，因此推理时间和误差传播仍受到图像对数量影响。
+
+VGGT 将上述范式扩展到任意数量图像。模型以第一相机为参考坐标系，通过交替的帧内注意力和全局注意力联合推理所有视图，同时输出相机、深度、pointmap 与跟踪特征\cite{vggt}。其关键价值不是简单提高某一个深度指标，而是将编辑所需的空间信息统一到共享特征中。CUT3R 通过持久状态支持在线图像流和未观测视角查询\cite{cut3r}；Easi3R 从 DUSt3R cross-attention 中分解动态区域，在不重新训练的条件下改善动态 4D 重建\cite{easi3r}；VGGT-$\Omega$ 则以 scene registers、register attention、轻量 dense head 和大规模自监督扩展模型容量及动态泛化\cite{vggtomega}。
+
+\subsection{可渲染三维表示}
+
+pointmap 适合表达像素对齐几何，却不直接包含用于高质量渲染的 opacity、scale、rotation 和 view-dependent appearance。3DGS 将场景表示为一组三维高斯，每个高斯包含中心 $\boldsymbol{\mu}$、协方差 $\boldsymbol{\Sigma}$、不透明度 $\alpha$ 与球谐颜色系数，通过可微 splatting 实现实时渲染\cite{3dgs}。FLARE 采用“位姿估计--相机局部几何--全局几何投影--Gaussian head”的级联结构，从无标定稀疏视图直接预测可渲染三维场景\cite{flare}。这说明从 VGGT pointmap 到 3DGS 仍需进行尺度、局部表面和外观参数建模。
+
+\subsection{原生三维生成}
+
+TRELLIS 通过 SLAT 在 active voxels 上联合表达粗结构与局部几何/外观，使用 DINOv2 多视图特征和 sparse VAE 学习统一潜空间，再以两个 rectified-flow Transformers 依次生成稀疏结构和局部潜变量\cite{trellis}。该设计既能解码到多种三维格式，也允许固定未编辑区域、只重采样局部潜变量。TRELLIS 2 进一步提出 field-free 的 O-Voxel，将任意拓扑几何与 PBR 材质压缩到紧凑潜空间，增强了开放表面、非流形结构、内部表面和透明材质的建模能力\cite{trellis2}。SynCity 则利用 LLM、二维生成器和 TRELLIS 逐 tile 构建可导航世界，说明对象级生成器可以通过空间分块和边界融合扩展到大场景\cite{syncity}。
+
+\subsection{文本驱动三维编辑}
+
+现有三维编辑大体可分为三类。第一类在原生三维几何中预测局部变化。VGGT-Edit 将编辑写成 edit mask 内的稠密残差位移场，并通过文本分层注入、视图权重、法向一致和背景保持约束降低跨视图冲突\cite{vggtedit}。需要注意的是，该工作冻结的是 $\pi^3$ 重建骨干，并非直接在原版 VGGT 权重上增加编辑头，但其 pointmap 残差思想可迁移到 VGGT 输出。
+
+第二类保留二维编辑模型的强语义能力，再使用三维模型验证一致性。RL3DEdit 使用 FLUX-Kontext 联合编辑多个视图，并把 VGGT 的深度/point confidence 和相对位姿误差作为 GRPO 奖励\cite{rl3dedit}。其核心认识是：直接生成三维一致的多视图内容较难，但识别几何矛盾相对容易。
+
+第三类采用 agent 编排多个工具。REALM 通过 3DGS feature field 与 Global-to-Local Spatial Grounding，将隐式语言指令转成精细三维 mask\cite{realm}；Vinedresser3D 使用 MLLM 解析增加、修改和删除指令，通过 PartField 定位三维区域，再交替调用 TRELLIS-text 与 TRELLIS-image 完成潜空间反演编辑\cite{vinedresser}. TwinTex 虽不属于 VGGT 路线，但其平面视图选择、结构线对齐和扩散纹理补全对教室墙面、地面等规则区域具有参考价值\cite{twintex}。
+
+\subsection{本文定位}
+
+与需要大规模训练的 VGGT-Edit 和 RL3DEdit 不同，本文以本地已部署的 VGGT 与 TRELLIS 1 官方代码为基础，优先研究无需重新训练基础模型的系统组合：VGGT 提供真实空间与几何约束，TRELLIS 提供新增内容，显式相似变换负责连接两者。当前仓库尚未实现这一连接层，因而该路线的价值在于明确可执行数据接口、误差来源和后续语义 grounding、残差编辑与 VGGT verifier 的实现边界。
