@@ -7,16 +7,16 @@
 本地 \texttt{code/} 目录包含两个彼此独立的上游工程：
 \texttt{code/vggt/} 对应 Facebook Research 的 VGGT 实现，本地修订为
 \texttt{a288dd0}；\texttt{code/TRELLIS/} 对应 Microsoft TRELLIS 实现，
-本地修订为 \texttt{442aa1e}。两个子工程均保留了官方推理、可视化与训练代码。
+本地修订为 \texttt{442aa1e}。两个子工程均保留了官方推理、可视化与训练代码，本次实验已分别跑通 VGGT 与 TRELLIS 的官方推理流程。
 
 需要强调的是，当前代码中没有直接同时导入 \texttt{vggt} 与
 \texttt{trellis} 的融合入口，也没有支撑面估计、资产相似变换、SAM2/MLLM
 定位、局部可微融合或 VGGT 闭环评分的可执行实现。因此，第 4 章给出的是基于
-现有模型接口可以实现的系统方法，而本章只把已在源码中出现的功能记为“已实现”。
+现有模型接口提出的未来系统方案，而本章只把两个基础模型各自跑通的功能记为“已复现”；任何跨模型步骤均不记为已实现。
 
 \begin{table}[H]
   \centering
-  \caption{本地代码中已实现模块及其输出}
+  \caption{本地代码中已独立复现的模块及融合实现边界}
   \label{tab:code-scope}
   \small
   \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{4.2cm} X}

@@ -40,22 +40,20 @@
   \item \textbf{可编辑性：}是否能够识别地面、空闲放置区域和待编辑对象的大致三维范围。
 \end{itemize}
 
-\subsection{TRELLIS 代码能力与资产产物边界}
+\subsection{TRELLIS 独立复现结果与产物边界}
 
-源码已提供完整的 TRELLIS 推理路径：\texttt{example.py} 加载
-\texttt{TRELLIS-image-large}，\texttt{example\_text.py} 加载
-\texttt{TRELLIS-text-xlarge}；两者均可解码 mesh、Gaussian 和 Radiance Field，并可保存
-30 FPS 旋转视频、Gaussian PLY 和烘焙纹理的 GLB。但当前仓库没有保存与某一个生成条件对应的
-\texttt{sample.ply}、\texttt{sample.glb} 或多视图渲染，因而还不能对语义一致性、几何完整性和采样随机性进行实验分析。
+本次实验已独立跑通 TRELLIS 的官方图像条件与文本条件推理路径；两条路径均可解码
+mesh、Gaussian 和 Radiance Field，并可保存
+30 FPS 旋转视频、Gaussian PLY 和烘焙纹理的 GLB。该结果证明 TRELLIS 的独立生成与多格式解码流程已经复现，但本次实验没有将其输出注册或融合到 VGGT 重建场景中，因此不能把独立资产生成结果表述为场景编辑结果。
 
 此外，对 \texttt{classroom.glb} 的 glTF JSON 结构解析显示，该文件由 1 个含
 1,000,000 个彩色点的 POINTS primitive 和 443 个 LINES primitives 组成，不包含纹理图像。
 这与 \texttt{visual\_util.py} 输出的 VGGT 点云及相机线框格式一致，因而不再将其作为 TRELLIS
 纹理 mesh 的实验证据。
 
-\subsection{VGGT 与 TRELLIS 场景融合}
+\subsection{VGGT 与 TRELLIS 场景融合：未实现的未来工作}
 
-融合实验是本文从“两个独立模型接口”走向“生成式三维编辑”的关键。代码审计表明，当前尚缺以下可执行环节：
+融合实验是本文从“两个独立模型复现”走向“生成式三维编辑”的下一阶段工作。本次实验尚未实现融合模块；当前缺少的可执行环节包括：
 \begin{enumerate}[label=\arabic*.]
   \item 将 VGGT pointmap/COLMAP 结果稳定转换为带统一坐标约定的场景几何；
   \item 将 TRELLIS mesh 或 Gaussian 资产底面中心化，并估计尺度、朝向和支撑关系；
@@ -63,16 +61,16 @@
   \item 沿原相机重渲染候选，计算背景保持、语义符合度与 VGGT 几何分数。
 \end{enumerate}
 
-因此本文不展示无对应输出文件的“融合结果”占位图，而将首个验收目标限定为对象添加：
+因此本文不报告融合编辑的实验结果，也不使用独立生成或重建可视化代替融合结果。未来工作的首个验收目标限定为对象添加：
 同时保存原场景、直接插入、支撑面对齐和完整尺度/方向约束四组输出，并保存每组的变换 JSON。
 
 \subsection{定量评价设计}
 
-现阶段缺少融合 ground truth 与完整运行日志，因此先对代码和文件层面的可验证结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“代码具备能力”、“有产物可核验”和“已形成端到端实验”三个层次分开。
+现阶段没有融合模块、融合 ground truth 或端到端运行日志，因此只对两个模型的独立复现结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“已独立复现”与“仅提出、待实现”严格分开。
 
 \begin{table}[H]
   \centering
-  \caption{当前代码与归档产物的可验证状态}
+  \caption{独立复现结果与融合模块实现状态}
   \label{tab:main-results}
   \small
   \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} p{3.5cm} X X}
@@ -81,8 +79,8 @@
     \midrule
     VGGT & 深度图、相机/点云可视化；16 MB 点云 GLB & 相机、深度、pointmap 和 confidence 接口可用 & 输入帧数、耗时、显存与命令行记录 \\
     Gaussian 产物 & 3,551,987 Gaussians，62 属性/点，约 840 MB & 文件结构属于完整 3DGS 参数 & 从当前 VGGT 代码到该 PLY 的训练脚本和日志 \\
-    TRELLIS & 图像/文本/多图/变体生成代码 & 可解码 mesh、Gaussian 与 Radiance Field & 与条件、seed 对应的实际生成文件和渲染 \\
-    融合编辑 & 第 4 章方法与数据契约 & 可确定输入输出与评价项 & 注册、融合、重渲染和闭环评分的可执行代码 \\
+    TRELLIS & 已跑通图像/文本条件生成流程 & 可生成并解码 mesh、Gaussian 与 Radiance Field & 与 VGGT 场景的注册及融合 \\
+    融合编辑 & 第 4 章方法与数据契约 & 仅提出技术思想和预期输入输出 & 注册、融合、重渲染和闭环评分全部尚未实现 \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -105,9 +103,9 @@
   \end{tabularx}
 \end{table}
 
-\subsection{消融实验设计}
+\subsection{未来消融实验设计}
 
-为说明各约束的作用，建议完成表 \ref{tab:ablation} 所示消融。直接插入只做手工平移；第二组增加地面约束；第三组同时使用地面、尺度和朝向；第四组再使用 VGGT 几何分数从多个候选中筛选。该实验不要求训练新网络，但可以清楚展示系统设计的有效性。
+融合模块实现后，计划完成表 \ref{tab:ablation} 所示消融。直接插入只做手工平移；第二组增加地面约束；第三组同时使用地面、尺度和朝向；第四组再使用 VGGT 几何分数从多个候选中筛选。表中内容均为实验计划与预期现象，不是本次实验已经获得的结果。
 
 \begin{table}[H]
   \centering
@@ -127,4 +125,4 @@
 
 \subsection{局限性讨论}
 
-当前系统仍存在四类边界。第一，VGGT 依赖学习先验，在大面积弱纹理、反光边缘和未观测区域可能生成看似合理但不准确的几何；原版模型对鱼眼、极端旋转和大幅非刚体运动也不稳。第二，TRELLIS 主要在对象级资产上训练，完整教室场景与训练分布存在差异，且参考图光照可能被烘焙进纹理。第三，重建场景与生成资产存在尺度、单位和坐标规范差异，自动放置仍可能需要人工确认。第四，对象删除和替换会暴露原本不可见的表面，仅靠几何变换不能解决，需要进一步加入原生三维补全或多视图一致的纹理生成。
+当前工作仍存在四类边界。第一，VGGT 依赖学习先验，在大面积弱纹理、反光边缘和未观测区域可能生成看似合理但不准确的几何；原版模型对鱼眼、极端旋转和大幅非刚体运动也不稳。第二，TRELLIS 主要在对象级资产上训练，完整教室场景与训练分布存在差异，且参考图光照可能被烘焙进纹理。第三，也是当前最关键的限制，两个模型仍是独立复现，尚无统一坐标、自动注册和场景融合实现。第四，对象删除和替换会暴露原本不可见的表面，仅靠几何变换不能解决，需要进一步加入原生三维补全或多视图一致的纹理生成。
