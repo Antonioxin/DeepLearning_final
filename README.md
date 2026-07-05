@@ -56,6 +56,35 @@
   </tr>
 </table>
 
+## Reconstruction Videos
+
+<table>
+  <tr>
+    <td width="50%">
+      <video src="assets/videos/hdu-gate-reconstruction.mp4" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="50%">
+      <video src="assets/videos/college-reconstruction.mp4" width="100%" controls muted playsinline></video>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Campus Gate Fly-through</b></td>
+    <td align="center"><b>College Gaussian Scene</b></td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <video src="assets/videos/indoor-raw-reconstruction.mp4" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="50%">
+      <video src="assets/videos/lab-reconstruction.mp4" width="100%" controls muted playsinline></video>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Indoor Reconstruction Sequence</b></td>
+    <td align="center"><b>Laboratory Reconstruction</b></td>
+  </tr>
+</table>
+
 ## Method Pipeline
 
 ```mermaid
@@ -86,6 +115,7 @@ flowchart LR
 | [`latex报告模板/main.tex`](latex报告模板/main.tex) | LaTeX 主文件 |
 | [`latex报告模板/sections`](latex报告模板/sections) | 报告各章节源码 |
 | [`latex报告模板/figures`](latex报告模板/figures) | pipeline 图、校园重建图、编辑示意图 |
+| [`assets/videos`](assets/videos) | README 中展示的轻量重建视频 |
 | [`素材`](素材) | 项目素材、参考文档与采集数据 |
 
 ## Report Highlights
