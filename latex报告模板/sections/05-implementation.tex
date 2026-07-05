@@ -9,30 +9,39 @@
 \texttt{a288dd0}；\texttt{code/TRELLIS/} 对应 Microsoft TRELLIS 实现，
 本地修订为 \texttt{442aa1e}。两个子工程均保留了官方推理、可视化与训练代码，本次实验已分别跑通 VGGT 与 TRELLIS 的官方推理流程。
 
-需要强调的是，当前代码中没有直接同时导入 \texttt{vggt} 与
+需要说明的是，当前代码中没有直接同时导入 \texttt{vggt} 与
 \texttt{trellis} 的融合入口，也没有支撑面估计、资产相似变换、SAM2/MLLM
 定位、局部可微融合或 VGGT 闭环评分的可执行实现。因此，第 4 章给出的是基于
 现有模型接口提出的未来系统方案，而本章只把两个基础模型各自跑通的功能记为“已复现”；任何跨模型步骤均不记为已实现。
 
 \begin{table}[H]
   \centering
-  \caption{本地代码中已独立复现的模块及融合实现边界}
+  \caption{VGGT、TRELLIS 独立复现情况与融合系统完成状态}
   \label{tab:code-scope}
   \small
-  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{4.2cm} X}
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabularx}{\linewidth}{
+    >{\raggedright\arraybackslash}p{2.5cm}
+    X
+    >{\centering\arraybackslash}p{2.1cm}
+    >{\raggedright\arraybackslash}p{3.6cm}}
     \toprule
-    \textbf{模块} & \textbf{主要入口} & \textbf{代码可验证功能} \\
+    \textbf{系统环节} & \textbf{在拟议系统中的作用} & \textbf{完成状态} & \textbf{代码核对依据} \\
     \midrule
-    VGGT 前馈 & \path{demo_gradio.py}\\\path{demo_viser.py} &
-    输出相机编码、深度/置信度、世界 pointmap/置信度；可选跟踪头输出 track、visibility 和 confidence。\\
-    VGGT 导出 & \path{visual_util.py}\\\path{demo_colmap.py} &
-    将 pointmap 或“深度+相机”反投影为彩色点云，进行置信度百分位过滤，导出 GLB；另可导出 COLMAP 相机、图像和点云文件。\\
-    TRELLIS 生成 & \path{example.py}\\\path{example_text.py} &
-    从单图或文本条件先采样 sparse structure，再采样 SLat，同一 SLat 可解码为 mesh、3D Gaussian 和 Radiance Field。\\
-    TRELLIS 扩展 & \path{example_multi_image.py}\\\path{example_variant.py} &
-    支持训练自由的多图条件和基于已有 mesh 体素结构的文本变体生成。\\
-    融合编辑 & 尚无统一入口 &
-    第 4 章的注册、局部融合、语言定位与几何闭环尚需实现，不应与两个官方演示程序混为一谈。\\
+    VGGT 场景重建 &
+    从多视图图像估计相机、深度和世界坐标点图，并导出点云、GLB 或 COLMAP 文件。 &
+    \textbf{已独立复现} &
+    \path{demo_gradio.py}、\path{demo_viser.py}、\path{demo_colmap.py}、\path{visual_util.py} \\
+    \addlinespace
+    TRELLIS 资产生成 &
+    根据单图、文本或多图条件生成可解码为 mesh、3D Gaussian 或 Radiance Field 的三维资产。 &
+    \textbf{已独立复现} &
+    \path{example.py}、\path{example_text.py}、\path{example_multi_image.py}、\path{example_variant.py} \\
+    \addlinespace
+    VGGT--TRELLIS 融合编辑 &
+    完成语言定位、资产注册、局部融合、多视图重渲染及 VGGT 几何闭环验证。 &
+    \textbf{待实现} &
+    尚无统一代码入口；第 4 章内容为系统设计方案。 \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -40,7 +49,7 @@
 \subsection{代码声明的运行依赖}
 
 仓库没有保存本次实际运行时的 GPU 型号、驱动、CUDA 环境快照和逐阶段耗时，
-故本文不对这些字段作猜测。表 \ref{tab:environment} 严格列出源码或项目配置能够确认的依赖，
+故本文不对这些字段作猜测。表 \ref{tab:environment} 只列出源码或项目配置能够确认的依赖，
 它表示“代码要求”而非“本次运行机器实测配置”。
 
 \begin{table}[H]
@@ -153,7 +162,7 @@ glTF JSON chunk，可得到表 \ref{tab:artifact-audit} 所示的可验证信息
     \texttt{room.ply} & 3,551,987 个顶点，约 840 MB &
     binary little-endian PLY，每个顶点含 62 个属性：位置、法向、48 个球谐颜色系数、opacity、3 个 scale 和 4 个 rotation，确属 3DGS 参数文件。\\
     \texttt{classroom.glb} & 1 个 scene、445 个 node、444 个 mesh，约 16 MB &
-    其中 1 个 primitive 使用 glTF mode 0（POINTS）并含 1,000,000 个彩色点；443 个 primitive 使用 mode 1（LINES），且无纹理图像。这与 VGGT Gradio 导出的“点云+相机线框”结构一致，不是 TRELLIS 纹理 mesh 的证据。\\
+    其中 1 个 primitive 使用 glTF mode 0（POINTS）并含 1,000,000 个彩色点；443 个 primitive 使用 mode 1（LINES），且无纹理图像。这与 VGGT Gradio 导出的“点云+相机线框”结构一致，不能作为 TRELLIS 纹理 mesh 的证据。\\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -161,7 +170,7 @@ glTF JSON chunk，可得到表 \ref{tab:artifact-audit} 所示的可验证信息
 \texttt{room.ply} 的属性可证明其是可渲染高斯场景，但当前 \texttt{code/vggt/} 只直接导出
 点云 GLB、COLMAP 文件与 \texttt{points.ply}；仓库中缺少“VGGT/COLMAP 初始化
 $\rightarrow$ 3DGS 优化 $\rightarrow$ \texttt{room.ply}”的训练命令、配置与日志。因此本文将该文件记为
-“已归档的 Gaussian 产物”，而不宣称当前两个子仓库可以端到端重现它。
+“已归档的 Gaussian 产物”，但不宣称当前两个子仓库可以端到端重现它。
 
 \subsection{待实现的统一融合接口}
 
@@ -187,7 +196,7 @@ asset = trellis_pipeline.run(
 # -> local fusion -> multi-view rerendering -> VGGT verification
 \end{lstlisting}
 
-为保证下一阶段可复现，融合模块应至少保存：VGGT 预测的原始 \texttt{npz}，
+为保证下一阶段可复现，融合模块至少需要保存：VGGT 预测的原始 \texttt{npz}，
 TRELLIS 条件、模型名、随机种子和采样参数，资产与场景的坐标系约定，
 $s,\mathbf R,\mathbf t$ 变换，支撑面和三维掩码，以及每个候选的几何、语义与背景保持分数。
 \endgroup

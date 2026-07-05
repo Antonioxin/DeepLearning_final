@@ -16,10 +16,12 @@
 \setCJKfamilyfont{zhhei}{STHeiti Light.ttc}[Path=/System/Library/Fonts/, BoldFont=STHeiti Light.ttc]
 \setCJKfamilyfont{zhfs}{Songti.ttc}[Path=/System/Library/Fonts/Supplemental/, FontIndex=3, BoldFont=Songti.ttc, BoldFeatures={FontIndex=3}]
 \setCJKfamilyfont{zhkai}{Songti.ttc}[Path=/System/Library/Fonts/Supplemental/, FontIndex=3, BoldFont=Songti.ttc, BoldFeatures={FontIndex=3}]
+\setCJKfamilyfont{coverhei}{STHeiti Medium.ttc}[Path=/System/Library/Fonts/]
 \newcommand{\songti}{\CJKfamily{zhsong}}
 \newcommand{\heiti}{\CJKfamily{zhhei}}
 \newcommand{\fangsong}{\CJKfamily{zhfs}}
 \newcommand{\kaishu}{\CJKfamily{zhkai}}
+\newcommand{\coverhei}{\CJKfamily{coverhei}}
 
 % ---- 页面布局 ----
 \usepackage[
@@ -93,18 +95,19 @@
 %  封面信息（每次新报告只需修改这一段）
 % =============================================
 \newcommand{\courseName}{深度学习}                   % 页眉左侧 / 课程名
-\newcommand{\expTitle}{深度学习期末报告}             % 封面正中大字
+\newcommand{\expTitle}{期末报告}                     % 封面正中大字
 \newcommand{\expFullTitle}{基于 VGGT 场景重建与 TRELLIS\\三维生成的真实场景编辑方法} % 题目栏
 \newcommand{\academicYear}{2025-2026-2}              % 学年学期
 \newcommand{\college}{计算机学院}
 \newcommand{\major}{计算机科学与技术}
-\newcommand{\studentName}{徐熠潘 胡鑫园 夏君旸}
-\newcommand{\studentID}{24051133}
+\newcommand{\className}{周四8-9}
+\newcommand{\studentName}{徐熠潘\hspace{0.22cm}胡鑫园\hspace{0.22cm}夏君旸}
+\newcommand{\studentID}{24051133\hspace{0.18cm}24050136\hspace{0.18cm}23050236}
 \newcommand{\instructor}{杨艳}
 \newcommand{\expDate}{2026 年 6 月}
 
 % 校名图片文件名（位于 figures/ 下，不带路径前缀）
-\newcommand{\titleLogo}{杭电文字 title.png}
+\newcommand{\titleLogo}{hdu_logo_blue.png}
 
 % 缺失实验图片的统一占位框。后续只需用 \includegraphics 替换整个命令。
 \newcommand{\figureplaceholder}[3]{%
@@ -126,40 +129,62 @@
 \begin{titlepage}
   \thispagestyle{empty}
 
-  \centering
-  \vspace*{2.0cm}
+  \begin{tikzpicture}[remember picture,overlay]
+    % ---- 校名图片 ----
+    \node[inner sep=0pt, anchor=center] at ([yshift=-5.85cm]current page.north)
+      {\includegraphics[width=11.95cm]{\titleLogo}};
 
-  % ---- 校名图片 ----
-  \includegraphics[width=11cm]{\titleLogo}
+    % ---- 实验大标题 ----
+    \node[anchor=center, font=\coverhei\bfseries\fontsize{28}{34}\selectfont]
+      at ([yshift=-9.82cm]current page.north)
+      {《\hspace{0.18cm}深\hspace{0.18cm}度\hspace{0.18cm}学\hspace{0.18cm}习\hspace{0.18cm}》};
+    \node[anchor=center, font=\coverhei\bfseries\fontsize{28}{34}\selectfont]
+      at ([yshift=-11.42cm]current page.north)
+      {期\hspace{0.38cm}末\hspace{0.38cm}报\hspace{0.38cm}告};
 
-  \vspace{2.2cm}
+    % ---- 信息表格 ----
+    \coordinate (tableTopLeft) at ([xshift=-4.15cm,yshift=-15.35cm]current page.north);
+    \def\coverTableWidth{8.30}
+    \def\coverLabelWidth{2.70}
+    \def\coverRowHeight{1.40}
+    \foreach \row in {0,...,5} {
+      \draw[gray!45, line width=0.35pt, dash pattern=on 1pt off 1pt]
+        ([yshift=-\row*\coverRowHeight cm]tableTopLeft) --
+        ([xshift=\coverTableWidth cm,yshift=-\row*\coverRowHeight cm]tableTopLeft);
+    }
+    \foreach \x in {0,\coverLabelWidth,\coverTableWidth} {
+      \draw[gray!45, line width=0.35pt, dash pattern=on 1pt off 1pt]
+        ([xshift=\x cm]tableTopLeft) --
+        ([xshift=\x cm,yshift=-5*\coverRowHeight cm]tableTopLeft);
+    }
+    \foreach \row in {1,...,5} {
+      \draw[black, line width=0.45pt]
+        ([xshift=\coverLabelWidth cm,yshift=-\row*\coverRowHeight cm]tableTopLeft) --
+        ([xshift=\coverTableWidth cm,yshift=-\row*\coverRowHeight cm]tableTopLeft);
+    }
 
-  % ---- 实验大标题 ----
-  {\fontsize{38}{50}\selectfont\heiti\bfseries \expTitle\par}
+    \foreach \label/\value/\row in {
+      {姓\hspace{0.62cm}名:}/{\studentName}/0,
+      {学\hspace{0.62cm}号:}/{\studentID}/1,
+      {学\hspace{0.62cm}院:}/{\college}/2,
+      {班\hspace{0.62cm}级:}/{\className}/3,
+      {专\hspace{0.62cm}业:}/{\major}/4
+    } {
+      \node[anchor=center, font=\coverhei\bfseries\fontsize{17}{20}\selectfont]
+        at ([xshift=1.35cm,yshift=-\row*\coverRowHeight cm-0.70cm]tableTopLeft) {\label};
+      \node[anchor=center, text width=5.45cm, align=center,
+        font=\coverhei\bfseries\fontsize{15}{19}\selectfont]
+        at ([xshift=5.50cm,yshift=-\row*\coverRowHeight cm-0.70cm]tableTopLeft) {\value};
+    }
 
-  \vspace{0.9cm}
-
-  % ---- 学年 ----
-  {\Large\bfseries （\academicYear）\par}
-
-  \vspace{3.0cm}
-
-  % ---- 信息表格 ----
-  % 辅助命令：带下划线的定宽内容框
-  \newcommand{\infobox}[1]{\underline{\makebox[7.8cm][c]{\large #1}}}
-  \newcommand{\titleinfobox}[1]{%
-    \parbox[c]{7.8cm}{\centering\normalsize #1\\[-0.15em]\rule{7.8cm}{0.4pt}}}
-
-  \renewcommand{\arraystretch}{1.75}
-  \begin{tabular}{>{\large\bfseries}p{2.6cm} l}
-    题\quad 目 & \titleinfobox{\expFullTitle} \\
-    学\quad 院 & \infobox{\college}        \\
-    专\quad 业 & \infobox{\major}          \\
-    学\quad 号 & \infobox{\studentID}      \\
-    学生姓名   & \infobox{\studentName}    \\
-    任课教师   & \infobox{\instructor}     \\
-    完成日期   & \infobox{\expDate}        \\
-  \end{tabular}
+    % ---- 完成时间 ----
+    \node[anchor=center, font=\coverhei\bfseries\fontsize{17}{20}\selectfont]
+      at ([yshift=-25.55cm]current page.north)
+      {完成时间:\quad
+        \underline{\makebox[2.25cm][c]{2026}}\ 年\quad
+        \underline{\makebox[1.25cm][c]{6}}\ 月};
+  \end{tikzpicture}
+  \null
 
 \end{titlepage}
 
