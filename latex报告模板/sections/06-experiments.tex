@@ -68,7 +68,7 @@ mesh、Gaussian 和 Radiance Field，并可保存
 
 现阶段没有融合模块、融合 ground truth 或端到端运行日志，因此只对两个模型的独立复现结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“已独立复现”与“仅提出、待实现”严格分开。
 
-\begin{table}[H]
+\begin{table}[htbp]
   \centering
   \caption{独立复现结果与融合模块实现状态}
   \label{tab:main-results}
@@ -85,7 +85,7 @@ mesh、Gaussian 和 Radiance Field，并可保存
   \end{tabularx}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[htbp]
   \centering
   \caption{编辑质量评价指标}
   \label{tab:metrics}
@@ -107,7 +107,7 @@ mesh、Gaussian 和 Radiance Field，并可保存
 
 融合模块实现后，计划完成表 \ref{tab:ablation} 所示消融。直接插入只做手工平移；第二组增加地面约束；第三组同时使用地面、尺度和朝向；第四组再使用 VGGT 几何分数从多个候选中筛选。表中内容均为实验计划与预期现象，不是本次实验已经获得的结果。
 
-\begin{table}[H]
+\begin{table}[htbp]
   \centering
   \caption{场景融合消融实验设计}
   \label{tab:ablation}

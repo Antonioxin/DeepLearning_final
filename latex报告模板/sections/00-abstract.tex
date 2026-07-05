@@ -1,5 +1,11 @@
+\begin{center}
+  {\heiti\zihao{2}\bfseries \expFullTitle\par}
+\end{center}
+\vspace{1em}
+
 \section*{\centering 摘要}
 \addcontentsline{toc}{section}{摘要}
+\markboth{摘要}{摘要}
 
 面向增强现实、数字孪生和三维内容创作的真实场景编辑，需要同时处理两件事：从有限图像中恢复可用的空间结构，并让新增内容具有完整几何、合理外观和跨视角一致性。传统三维重建通常依赖特征匹配、Structure-from-Motion、Bundle Adjustment 和 Multi-View Stereo 等多阶段优化，流程较长，也难以满足交互速度；二维扩散模型虽然语义生成能力强，但逐视图编辑容易引入几何冲突。围绕这一问题，本文完成 Visual Geometry Grounded Transformer（VGGT）与 TRELLIS 两个官方工程的独立复现，并分析二者在真实场景三维融合编辑中的互补关系。
 
