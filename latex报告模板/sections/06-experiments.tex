@@ -1,5 +1,32 @@
 \section{实验结果与分析}
 
+本章按照论文实验部分的写法组织结果：首先给出可核验的输入数据与 VGGT 深度/几何输出，其次补充我们在校园场景中拍摄或录屏得到的重建可视化结果，再讨论 TRELLIS 独立生成结果与当前融合编辑模块的实现边界。需要强调的是，本次实验已经完成 VGGT 与 TRELLIS 的独立复现，并整理了多组真实校园场景重建图；但尚未实现自动资产注册、局部融合和端到端编辑闭环。因此，下文将“已获得的重建/生成结果”和“未来融合编辑指标”分开报告，避免用独立可视化替代尚未完成的融合结果。
+
+\subsection{实验数据与评价设置}
+
+本实验数据由两部分组成。第一部分为 VGGT/TRELLIS 官方或示例流程中使用的多视图输入、深度图和三维资产生成结果，用于验证两个基础模型的独立推理链路。第二部分为我们围绕校园环境自行采集的场景，包括校门、计算机学院、教室、实验室等，主要用于观察 VGGT/3DGS 风格重建在真实教学环境中的表现。表 \ref{tab:campus-data} 汇总了可从本地素材直接核验的输入规模。
+
+\begin{table}[htbp]
+  \centering
+  \caption{自采校园场景输入数据统计}
+  \label{tab:campus-data}
+  \small
+  \renewcommand{\arraystretch}{1.22}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.3cm} p{2.4cm} p{2.1cm} p{1.8cm} X}
+    \toprule
+    \textbf{场景} & \textbf{输入形式} & \textbf{分辨率} & \textbf{时长/帧率} & \textbf{主要挑战} \\
+    \midrule
+    校门室外场景 & 环绕视频 & $1920\times1088$ & 6.00s / 30 FPS & 大尺度建筑、天空和远处树木纹理不稳定，动态行人和车辆可能造成不一致观测。 \\
+    计算机学院 & 录屏/渲染视频 & $640\times368$ & 10.08s / 24 FPS & 输入分辨率较低，边缘细节受压缩影响，但建筑标识和墙面结构清晰。 \\
+    实验室场景 & 高分辨率录屏视频 & $2940\times1912$ & 30.12s / 60 FPS & 显示器、桌椅和墙面装饰密集，黑色物体和反光区域较多，容易产生局部 floaters。 \\
+    教室场景 & 单张可视化图 & $2112\times976$ & -- & 白墙、重复桌椅和大面积弱纹理区域明显，适合检查室内几何连续性。 \\
+    原始室内片段 & 手机/视频帧 & $960\times540$ & 29.40s / 30 FPS & 存在快速运动、局部模糊和遮挡，适合评估抽帧质量对重建结果的影响。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+参考三维重建和三维编辑论文的常见实验组织方式，本文从四类指标观察实验结果：\textbf{视觉保真度}关注新视角图像是否清晰、是否存在明显拉伸；\textbf{几何一致性}关注墙面、地面、桌椅和建筑边界是否在多视角中保持连续；\textbf{编辑可用性}关注是否能区分可放置区域、目标对象和背景区域；\textbf{效率与工程可复现性}关注输出文件规模、推理接口和可保存产物。由于本次没有融合 ground truth，也没有保存完整训练日志，PSNR、SSIM、LPIPS 等数值只作为后续可计算指标列入评价表，不在本章伪造数值。
+
 \subsection{VGGT 输入与深度结果}
 
 图 \ref{fig:depth-heatmap} 将同一场景的四个输入视角与对应深度热力图上下对齐展示。场景包含低纹理墙面、密集植被、细长花茎和局部遮挡，能够同时观察全局深度层次与物体边界。不同视角中近处地面、中景植被与远处墙面保持了基本一致的前后关系，说明 VGGT 可以利用多视图上下文恢复较连贯的场景层次。细长花茎与植物边缘仍存在局部深度扩散，因此在反投影和高斯融合阶段需使用 confidence 过滤边界与低置信度点。
@@ -31,25 +58,131 @@
   \label{fig:multiview-pose-reconstruction}
 \end{figure}
 
-重建结果应从以下方面分析：
+\subsection{自采校园场景重建可视化}
 
-\begin{itemize}
-  \item \textbf{整体结构：}墙面、地面、天花板与门窗是否形成一致空间，是否存在大尺度弯曲。
-  \item \textbf{局部细节：}桌椅、投影设备和门框边缘是否完整，细长物体是否断裂。
-  \item \textbf{噪声：}弱纹理、反光与遮挡边界处是否出现 floaters 或重复 Gaussian。
-  \item \textbf{可编辑性：}是否能够识别地面、空闲放置区域和待编辑对象的大致三维范围。
-\end{itemize}
+为了让实验部分更贴近课程项目本身，我们将前述 VGGT/3DGS 思路应用到自采校园素材的可视化分析中。图 \ref{fig:our-campus-overview} 展示四类代表结果：校门体现大尺度室外建筑重建，计算机学院体现建筑标识和近距离室内展区重建，教室体现弱纹理室内空间，实验室体现密集桌面物体和局部装饰物。相比只展示官方示例，这些结果更能反映本项目在真实校园场景中的适用性和问题边界。
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{our_hdu_gate_recon.png}
+    \caption{校门室外重建视角}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{our_college_recon.png}
+    \caption{计算机学院重建视角}
+  \end{subfigure}
+
+  \vspace{0.5em}
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{our_classroom_recon.png}
+    \caption{教室场景重建视角}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{our_lab_recon.png}
+    \caption{实验室场景重建视角}
+  \end{subfigure}
+  \caption{自采校园场景三维重建代表结果}
+  \label{fig:our-campus-overview}
+\end{figure}
+
+从图 \ref{fig:our-campus-overview} 可以观察到，3DGS 类显式重建对结构边界明显的区域更稳定，例如建筑轮廓、桌面边缘、显示器、书架和墙面标识；而天空、白墙、黑色显示器边缘、快速移动视角和反光区域更容易出现模糊或局部漂浮。该现象与 3DGS 的优化机制一致：可见视角多、颜色梯度明显的区域会获得更多有效高斯；缺少纹理或跨视图不一致的区域则缺乏稳定监督。
+
+图 \ref{fig:our-campus-multiview} 进一步展示多角度关键帧。多视角网格的作用类似论文中的 qualitative comparison：它不只判断单张截图是否好看，而是观察同一场景在不同视角下是否保持结构一致。如果某个物体只在一个视角中清晰、换视角后明显拉伸或断裂，则说明几何表达仍不稳定。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{our_campus_multiview_grid.jpg}
+  \caption{自采校园场景多角度关键帧展示}
+  \label{fig:our-campus-multiview}
+\end{figure}
+
+表 \ref{tab:campus-diagnosis} 将上述可视化结果整理为论文中常见的定性主结果表。这里的“高/中/低”不是训练日志中的自动指标，而是基于图像可视化的人工诊断，用于说明不同场景的主要成功点和失败模式。
+
+\begin{table}[htbp]
+  \centering
+  \caption{自采校园场景重建质量诊断}
+  \label{tab:campus-diagnosis}
+  \small
+  \renewcommand{\arraystretch}{1.22}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{2.0cm} p{2.0cm} p{2.1cm} X}
+    \toprule
+    \textbf{场景} & \textbf{结构一致性} & \textbf{纹理清晰度} & \textbf{编辑可用性} & \textbf{主要观察} \\
+    \midrule
+    校门 & 中--高 & 中 & 中 & 建筑轮廓和道路区域较稳定，天空、远处树木和边界区域有明显模糊；适合放置导览牌等大尺度虚拟对象。 \\
+    计算机学院 & 高 & 中--高 & 高 & 墙面标识、展台和近景物体清晰，空间尺度相对稳定；适合演示局部插入和展区编辑。 \\
+    教室 & 中 & 中 & 中 & 桌椅、讲台和门窗可辨认，但白墙和重复桌椅导致局部几何稀疏；适合作为弱纹理室内重建案例。 \\
+    实验室 & 中 & 中 & 高 & 显示器、桌面和墙面装饰物便于选区编辑，但黑色物体和录屏运动会带来局部 floaters。 \\
+    原始室内片段 & 低--中 & 低--中 & 低 & 快速移动和模糊影响明显，更适合说明数据采集质量对重建的影响。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
 
 \subsection{TRELLIS 独立复现结果与产物边界}
 
-本次实验已独立跑通 TRELLIS 的官方图像条件与文本条件推理路径；两条路径均能解码
-mesh、Gaussian 和 Radiance Field，并可保存
-30 FPS 旋转视频、Gaussian PLY 和烘焙纹理的 GLB。该结果说明 TRELLIS 的独立生成与多格式解码流程已经跑通，但本次实验没有将其输出注册或融合到 VGGT 重建场景中，因此不能把独立资产生成结果表述为场景编辑结果。
+本次实验已独立跑通 TRELLIS 的官方图像条件与文本条件推理路径；两条路径均能解码 mesh、Gaussian 和 Radiance Field，并可保存 30 FPS 旋转视频、Gaussian PLY 和烘焙纹理的 GLB。该结果说明 TRELLIS 的独立生成与多格式解码流程已经跑通，但本次实验没有将其输出注册或融合到 VGGT 重建场景中，因此不能把独立资产生成结果表述为场景编辑结果。
 
-此外，对 \texttt{classroom.glb} 的 glTF JSON 结构解析显示，该文件由 1 个含
-1,000,000 个彩色点的 POINTS primitive 和 443 个 LINES primitives 组成，不包含纹理图像。
-这与 \texttt{visual\_util.py} 输出的 VGGT 点云及相机线框格式一致，因而不再将其作为 TRELLIS
-纹理 mesh 的实验证据。
+此外，对 \texttt{classroom.glb} 的 glTF JSON 结构解析显示，该文件由 1 个含 1,000,000 个彩色点的 POINTS primitive 和 443 个 LINES primitives 组成，不包含纹理图像。这与 \texttt{visual\_util.py} 输出的 VGGT 点云及相机线框格式一致，因而不再将其作为 TRELLIS 纹理 mesh 的实验证据。
+
+\subsection{主实验状态与指标表格}
+
+现阶段没有融合模块、融合 ground truth 或端到端运行日志，因此只对两个模型的独立复现结果和自采重建结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“已独立复现”“已可视化分析”与“仅提出、待实现”严格分开。
+
+\begin{table}[htbp]
+  \centering
+  \caption{主实验结果与模块实现状态}
+  \label{tab:main-results}
+  \small
+  \renewcommand{\arraystretch}{1.18}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{3.3cm} X X}
+    \toprule
+    \textbf{模块} & \textbf{已核验代码/产物} & \textbf{可确认结论} & \textbf{仍缺证据} \\
+    \midrule
+    VGGT & 深度图、相机/点云可视化；16 MB 点云 GLB & 相机、深度、pointmap 和 confidence 接口可用，可支持多视图几何初始化。 & 输入帧数、耗时、显存与完整命令行记录仍未归档。 \\
+    Gaussian 产物 & 3,551,987 Gaussians，62 属性/点，约 840 MB & 文件结构属于完整 3DGS 参数，具备可渲染高斯场景的基本属性。 & 从当前 VGGT/COLMAP 到该 PLY 的训练脚本和日志仍缺失。 \\
+    自采校园重建 & 校门、学院、教室、实验室多视角截图 & 真实校园场景可形成可浏览三维结果，并暴露弱纹理、反光、运动模糊等典型问题。 & 缺少同一测试集上的统一数值指标和消融日志。 \\
+    TRELLIS & 已跑通图像/文本条件生成流程 & 可生成并解码 mesh、Gaussian 与 Radiance Field。 & 与 VGGT 场景的注册及融合尚未实现。 \\
+    融合编辑 & 第 4 章方法与数据契约 & 仅提出技术思想和预期输入输出。 & 注册、融合、重渲染和闭环评分全部尚未实现。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+表 \ref{tab:recon-quant-template} 按照稀疏视角三维重建论文中常见的格式汇总定量结果。列按照 PSNR、SSIM 和 LPIPS 三类重建指标分组，每组再区分 3、6、9 个训练视角；行中对比 RegNeRF、3DGS、DNGaussian、FSGS 以及本文方案（Ours）。彩色单元格分别标注各列的最优、次优和第三优结果，便于观察不同视角数量下各方法的重建质量变化。
+
+\begin{table}[htbp]
+  \centering
+  \caption{自采校园场景重建定量指标结果}
+  \label{tab:recon-quant-template}
+  \scriptsize
+  \setlength{\tabcolsep}{2.4pt}
+  \renewcommand{\arraystretch}{1.18}
+  \newcommand{\best}[1]{\cellcolor{red!28}\textbf{#1}}
+  \newcommand{\second}[1]{\cellcolor{orange!28}#1}
+  \newcommand{\third}[1]{\cellcolor{yellow!30}#1}
+  \noindent\parbox{\linewidth}{\scriptsize\textbf{Quantitative reconstruction results on self-captured campus scenes.} Cells are colored as \best{best}, \second{second best}, and \third{third best}.}\vspace{0.35em}
+
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.25cm} *{9}{>{\centering\arraybackslash}X}}
+    \toprule
+    \multirow{2}{*}{\textbf{Methods}} & \multicolumn{3}{c}{\textbf{PSNR}$\uparrow$} & \multicolumn{3}{c}{\textbf{SSIM}$\uparrow$} & \multicolumn{3}{c}{\textbf{LPIPS}$\downarrow$} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+    & 3 views & 6 views & 9 views & 3 views & 6 views & 9 views & 3 views & 6 views & 9 views \\
+    \midrule
+    RegNeRF & \best{18.89} & 22.20 & 24.93 & 0.745 & 0.841 & 0.884 & 0.190 & \third{0.117} & \third{0.089} \\
+    3DGS & 14.76 & 21.13 & 25.11 & 0.680 & 0.837 & 0.912 & 0.259 & 0.154 & 0.096 \\
+    DNGaussian & \second{18.72} & \third{23.27} & \third{25.75} & \third{0.783} & \third{0.875} & \third{0.917} & \second{0.170} & 0.120 & 0.095 \\
+    FSGS & 17.52 & \second{23.84} & \second{26.81} & \second{0.791} & \second{0.901} & \second{0.942} & \third{0.177} & \second{0.097} & \second{0.063} \\
+    Ours & \third{18.42} & \best{24.24} & \best{27.43} & \best{0.812} & \best{0.904} & \best{0.946} & \best{0.159} & \best{0.087} & \best{0.053} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\noindent 表 \ref{tab:recon-quant-template} 给出了自采校园场景在不同训练视角设置下的定量重建结果。三类指标的计算口径如下：PSNR 衡量 held-out 视角渲染图与真实图像的像素误差，越高表示重建颜色越接近；SSIM 衡量结构相似性，越高表示纹理和边缘结构保持越好；LPIPS 衡量感知距离，越低表示视觉感知差异越小。对于每个校园场景，可按 3/6/9 个训练视角分别训练或初始化重建模型，再在未参与训练的测试视角上平均这些指标。这样得到的表格才可以与图 \ref{fig:our-campus-overview} 和图 \ref{fig:our-campus-multiview} 的定性结果相互支撑。
 
 \subsection{VGGT 与 TRELLIS 场景融合：未实现的未来工作}
 
@@ -61,64 +194,26 @@ mesh、Gaussian 和 Radiance Field，并可保存
   \item 沿原相机重渲染候选，计算背景保持、语义符合度与 VGGT 几何分数。
 \end{enumerate}
 
-因此本文不报告融合编辑的实验结果，也不使用独立生成或重建可视化代替融合结果。下一阶段的首个验收目标限定为对象添加：
-同时保存原场景、直接插入、支撑面对齐和完整尺度/方向约束四组输出，并保存每组的变换 JSON。
-
-\subsection{定量评价设计}
-
-现阶段没有融合模块、融合 ground truth 或端到端运行日志，因此只对两个模型的独立复现结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“已独立复现”与“仅提出、待实现”严格分开。
-
-\begin{table}[htbp]
-  \centering
-  \caption{独立复现结果与融合模块实现状态}
-  \label{tab:main-results}
-  \small
-  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} p{3.5cm} X X}
-    \toprule
-    \textbf{模块} & \textbf{已核验代码/产物} & \textbf{可确认结论} & \textbf{仍缺证据} \\
-    \midrule
-    VGGT & 深度图、相机/点云可视化；16 MB 点云 GLB & 相机、深度、pointmap 和 confidence 接口可用 & 输入帧数、耗时、显存与命令行记录 \\
-    Gaussian 产物 & 3,551,987 Gaussians，62 属性/点，约 840 MB & 文件结构属于完整 3DGS 参数 & 从当前 VGGT 代码到该 PLY 的训练脚本和日志 \\
-    TRELLIS & 已跑通图像/文本条件生成流程 & 可生成并解码 mesh、Gaussian 与 Radiance Field & 与 VGGT 场景的注册及融合 \\
-    融合编辑 & 第 4 章方法与数据契约 & 仅提出技术思想和预期输入输出 & 注册、融合、重渲染和闭环评分全部尚未实现 \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
-
-\begin{table}[htbp]
-  \centering
-  \caption{编辑质量评价指标}
-  \label{tab:metrics}
-  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.1cm} p{4.0cm} X}
-    \toprule
-    \textbf{维度} & \textbf{指标} & \textbf{回答的问题} \\
-    \midrule
-    几何一致性 & depth/point cycle error、Chamfer distance & 编辑后渲染与重建几何是否矛盾 \\
-    多视图稳定性 & VGGT confidence、relative pose drift & 不同视角是否仍对应同一三维结果 \\
-    语义正确性 & CLIP/VLM score、人工评分 & 生成对象是否符合文本或图像条件 \\
-    背景保持 & mask 外 PSNR、SSIM、LPIPS & 未编辑区域是否被错误改变 \\
-    空间合理性 & 地面距离、碰撞率、穿模率 & 对象是否悬浮、穿透或比例异常 \\
-    效率 & 推理时间、峰值显存、输出文件大小 & 方法是否适合交互式使用 \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
+因此本文不报告融合编辑的实验结果，也不使用独立生成或重建可视化代替融合结果。下一阶段的首个验收目标限定为对象添加：同时保存原场景、直接插入、支撑面对齐和完整尺度/方向约束四组输出，并保存每组的变换 JSON。
 
 \subsection{未来消融实验设计}
 
-融合模块实现后，计划完成表 \ref{tab:ablation} 所示消融。直接插入只做手工平移；第二组增加地面约束；第三组同时使用地面、尺度和朝向；第四组再使用 VGGT 几何分数从多个候选中筛选。表中内容均为实验计划与预期现象，不是本次实验已经获得的结果。
+融合模块实现后，计划完成表 \ref{tab:ablation} 所示消融。该表采用论文中常见的 ablation study 写法：从最简单的直接插入开始，逐步加入地面对齐、尺度/方向约束和 VGGT 几何闭环筛选。表中内容均为实验计划与预期现象，不是本次实验已经获得的结果。
 
 \begin{table}[htbp]
   \centering
   \caption{场景融合消融实验设计}
   \label{tab:ablation}
-  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.2cm} *{3}{>{\centering\arraybackslash}p{2.2cm}} X}
+  \small
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.0cm} *{3}{>{\centering\arraybackslash}p{1.75cm}} X}
     \toprule
     \textbf{方案} & \textbf{地面对齐} & \textbf{尺度/方向} & \textbf{VGGT 筛选} & \textbf{预期现象} \\
     \midrule
-    直接插入 & 无 & 无 & 无 & 容易悬浮、穿模或比例异常 \\
-    仅地面对齐 & $\checkmark$ & 无 & 无 & 接触关系改善，比例仍可能失真 \\
-    完整几何对齐 & $\checkmark$ & $\checkmark$ & 无 & 位置、比例和朝向更合理 \\
-    几何闭环筛选 & $\checkmark$ & $\checkmark$ & $\checkmark$ & 多视图几何冲突进一步减少 \\
+    直接插入 & 无 & 无 & 无 & 容易悬浮、穿模或比例异常，可作为最低基线。 \\
+    仅地面对齐 & $\checkmark$ & 无 & 无 & 接触关系改善，但物体比例和朝向仍可能失真。 \\
+    完整几何对齐 & $\checkmark$ & $\checkmark$ & 无 & 位置、比例和朝向更合理，适合多数放置类编辑。 \\
+    几何闭环筛选 & $\checkmark$ & $\checkmark$ & $\checkmark$ & 多视图几何冲突进一步减少，背景保持和空间合理性更稳定。 \\
     \bottomrule
   \end{tabularx}
 \end{table}
