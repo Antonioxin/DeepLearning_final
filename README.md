@@ -58,13 +58,19 @@
 
 ## Reconstruction Videos
 
+GitHub README does not reliably render embedded MP4 players, so the page uses animated GIF previews. Click any preview to open the full MP4.
+
 <table>
   <tr>
     <td width="50%">
-      <video src="assets/videos/hdu-gate-reconstruction.mp4" width="100%" controls muted playsinline></video>
+      <a href="assets/videos/hdu-gate-reconstruction.mp4">
+        <img src="assets/previews/hdu-gate-reconstruction.gif" width="100%" alt="Campus gate reconstruction video preview">
+      </a>
     </td>
     <td width="50%">
-      <video src="assets/videos/college-reconstruction.mp4" width="100%" controls muted playsinline></video>
+      <a href="assets/videos/college-reconstruction.mp4">
+        <img src="assets/previews/college-reconstruction.gif" width="100%" alt="College reconstruction video preview">
+      </a>
     </td>
   </tr>
   <tr>
@@ -73,10 +79,14 @@
   </tr>
   <tr>
     <td width="50%">
-      <video src="assets/videos/indoor-raw-reconstruction.mp4" width="100%" controls muted playsinline></video>
+      <a href="assets/videos/indoor-raw-reconstruction.mp4">
+        <img src="assets/previews/indoor-raw-reconstruction.gif" width="100%" alt="Indoor reconstruction video preview">
+      </a>
     </td>
     <td width="50%">
-      <video src="assets/videos/lab-reconstruction.mp4" width="100%" controls muted playsinline></video>
+      <a href="assets/videos/lab-reconstruction.mp4">
+        <img src="assets/previews/lab-reconstruction.gif" width="100%" alt="Laboratory reconstruction video preview">
+      </a>
     </td>
   </tr>
   <tr>
@@ -115,7 +125,8 @@ flowchart LR
 | [`latex报告模板/main.tex`](latex报告模板/main.tex) | LaTeX 主文件 |
 | [`latex报告模板/sections`](latex报告模板/sections) | 报告各章节源码 |
 | [`latex报告模板/figures`](latex报告模板/figures) | pipeline 图、校园重建图、编辑示意图 |
-| [`assets/videos`](assets/videos) | README 中展示的轻量重建视频 |
+| [`assets/videos`](assets/videos) | README 动图可点击打开的轻量 MP4 视频 |
+| [`assets/previews`](assets/previews) | GitHub README 直接展示的 GIF 动图预览 |
 | [`素材`](素材) | 项目素材、参考文档与采集数据 |
 
 ## Report Highlights
