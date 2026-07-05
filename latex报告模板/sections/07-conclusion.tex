@@ -8,7 +8,7 @@
 
 后续首先需要补齐可复现证据链：保存实际运行环境、输入帧列表、命令行、权重版本、TRELLIS condition/seed/采样参数和逐阶段耗时；然后实现生成对象添加到教室场景的最小闭环，比较直接插入、支撑面对齐、完整几何对齐和 VGGT 几何筛选四种设置。在此基础上，可从以下方向扩展：
 
-\begin{itemize}[itemsep=0.15em, topsep=0.35em]
+\begin{itemize}[itemsep=0.04em, topsep=0.12em, parsep=0pt, partopsep=0pt]
   \item 使用 SAM、REALM 或 VLM 将自然语言指令转换为跨视图一致的三维 mask；
   \item 借鉴 VGGT-Edit，在 mask 内预测 Gaussian 参数的局部残差；
   \item 借鉴 RL3DEdit，将 VGGT 几何反馈从后验评分扩展为训练奖励；

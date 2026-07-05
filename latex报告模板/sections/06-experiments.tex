@@ -105,12 +105,12 @@
 
 表 \ref{tab:campus-diagnosis} 将上述可视化结果整理为论文中常见的定性主结果表。这里的“高/中/低”不是训练日志中的自动指标，而是基于图像可视化的人工诊断，用于说明不同场景的主要成功点和失败模式。
 
-\begin{table}[htbp]
+\begin{table}[H]
   \centering
   \caption{自采校园场景重建质量诊断}
   \label{tab:campus-diagnosis}
-  \small
-  \renewcommand{\arraystretch}{1.22}
+  \footnotesize
+  \renewcommand{\arraystretch}{1.08}
   \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{2.0cm} p{2.0cm} p{2.1cm} X}
     \toprule
     \textbf{场景} & \textbf{结构一致性} & \textbf{纹理清晰度} & \textbf{编辑可用性} & \textbf{主要观察} \\
@@ -134,12 +134,12 @@
 
 现阶段没有融合模块、融合 ground truth 或端到端运行日志，因此只对两个模型的独立复现结果和自采重建结果作状态归纳，如表 \ref{tab:main-results} 所示。该表将“已独立复现”“已可视化分析”与“仅提出、待实现”严格分开。
 
-\begin{table}[htbp]
+\begin{table}[H]
   \centering
   \caption{主实验结果与模块实现状态}
   \label{tab:main-results}
-  \small
-  \renewcommand{\arraystretch}{1.18}
+  \footnotesize
+  \renewcommand{\arraystretch}{1.08}
   \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.5cm} p{3.3cm} X X}
     \toprule
     \textbf{模块} & \textbf{已核验代码/产物} & \textbf{可确认结论} & \textbf{仍缺证据} \\
@@ -187,7 +187,7 @@
 \subsection{VGGT 与 TRELLIS 场景融合：未实现的未来工作}
 
 融合实验是本文从“两个独立模型复现”走向“生成式三维编辑”的下一阶段工作。本次实验尚未实现融合模块；当前缺少的可执行环节包括：
-\begin{enumerate}[label=\arabic*.]
+\begin{enumerate}[label=\arabic*., itemsep=0.05em, topsep=0.12em, parsep=0pt, partopsep=0pt]
   \item 将 VGGT pointmap/COLMAP 结果稳定转换为带统一坐标约定的场景几何；
   \item 将 TRELLIS mesh 或 Gaussian 资产底面中心化，并估计尺度、朝向和支撑关系；
   \item 实现 $s,\mathbf R,\mathbf t$ 相似变换、冲突检查、局部融合与场景导出；
@@ -200,12 +200,12 @@
 
 融合模块实现后，计划完成表 \ref{tab:ablation} 所示消融。该表采用论文中常见的 ablation study 写法：从最简单的直接插入开始，逐步加入地面对齐、尺度/方向约束和 VGGT 几何闭环筛选。表中内容均为实验计划与预期现象，不是本次实验已经获得的结果。
 
-\begin{table}[htbp]
+\begin{table}[H]
   \centering
   \caption{场景融合消融实验设计}
   \label{tab:ablation}
-  \small
-  \renewcommand{\arraystretch}{1.2}
+  \footnotesize
+  \renewcommand{\arraystretch}{1.05}
   \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.0cm} *{3}{>{\centering\arraybackslash}p{1.75cm}} X}
     \toprule
     \textbf{方案} & \textbf{地面对齐} & \textbf{尺度/方向} & \textbf{VGGT 筛选} & \textbf{预期现象} \\
